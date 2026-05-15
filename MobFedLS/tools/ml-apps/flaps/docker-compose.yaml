@@ -1,0 +1,28 @@
+services:
+  ml-app:
+    build:
+      context: .
+      dockerfile: deployment/Dockerfile
+    image: ml-app-flaps
+    container_name: ml-app-flaps
+    ports:
+      - "5001:5000"
+    volumes:
+      # Dataset mount (writable for cache files created by dataset loaders)
+      - ../../../assets/datasets/musdb18hq:/app/dataset
+      - ../../../assets/logs:/app/logs
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      LOGGING_LEVEL: ${LOGGING_LEVEL:-INFO}
+      DATA_ROOT: ${DATA_ROOT:-/app/dataset}
+      FULL_TRACKS: ${FULL_TRACKS:-true}
+      TRAIN_CHUNK_DURATION: ${TRAIN_CHUNK_DURATION:-3.0}
+      TRAIN_CHUNK_OVERLAP: ${TRAIN_CHUNK_OVERLAP:-0.0}
+      SAMPLE_RATE: ${SAMPLE_RATE:-16000}
+      MODEL_NAME: ${MODEL_NAME:-unet_small}
+      BASE_FILTERS: ${BASE_FILTERS:-16}
+      USE_AMP: ${USE_AMP:-true}
+      EVAL_BATCH_SIZE: ${EVAL_BATCH_SIZE:-1}
+    tty: true
+    stdin_open: true
+

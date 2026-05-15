@@ -1,0 +1,9 @@
+torch
+librosa
+soundfile
+sounddevice
+numpy
+pytest
+flask
+pyyaml
+

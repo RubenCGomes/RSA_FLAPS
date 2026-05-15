@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+env/
+venv/
+build/
+lib/
+lib64/
+wheels/
+
+# IDE
+.idea/
+.junie/
+
+# Logs
+logs/
+*.log
+
+# Dataset
+dataset/
+
+
+############################################
+# MY IGNORES ###############################
+############################################
+# Logs
+logs*
+
+# Environments
+.env
+.venv
+env.bak/
+venv.bak/
+
+# Pyre type checker
+.pyre/
+
+# VisualStudio Code
+.vscode/*
+
+# Ignore dataset and runs
+musdb18hq/*
+MobFedLS/assets/*
+**/runs/**
+MobFedLS/tools/ml-apps/references/*

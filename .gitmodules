@@ -1,0 +1,21 @@
+[submodule "MobFedLS/internal/tools/flower-ghostclient"]
+	path = MobFedLS/tools/flower-ghostclient
+	url = https://code.nap.av.it.pt/ai4sme/MobFedLearnSys/flower-ghostclient.git
+[submodule "MobFedLS/internal/tools/flower-server"]
+	path = MobFedLS/tools/flower-server
+	url = https://code.nap.av.it.pt/ai4sme/MobFedLearnSys/flower-server.git
+[submodule "MobFedLS/tools/find-neighbours"]
+	path = MobFedLS/cmd/find-neighbours
+	url = https://code.nap.av.it.pt/ai4sme/MobFedLearnSys/find-neighbours.git
+[submodule "MobFedLS/tools/mfls-manager"]
+	path = MobFedLS/cmd/mfls-manager
+	url = https://code.nap.av.it.pt/ai4sme/MobFedLearnSys/mfls-manager.git
+[submodule "MobFedLS/tools/ml-apps/ml-app_project-template"]
+	path = MobFedLS/tools/ml-apps/ml-app_project-template
+	url = https://code.nap.av.it.pt/ai4sme/MobFedLearnSys/ml-apps/ml-app_project-template.git
+[submodule "MobFedLS/internal/mfls-interface"]
+	path = MobFedLS/internal/mfls-interface
+	url = https://code.nap.av.it.pt/ai4sme/MobFedLearnSys/mfls-interface.git
+[submodule "MobFedLS/pkg/mfls-common"]
+	path = MobFedLS/pkg/mfls-common
+	url = https://code.nap.av.it.pt/ai4sme/MobFedLearnSys/mfls-common.git
