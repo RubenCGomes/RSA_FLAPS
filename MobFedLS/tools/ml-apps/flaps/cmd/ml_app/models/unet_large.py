@@ -16,6 +16,6 @@ class UNetLarge(UNetSmall):
 if __name__ == "__main__":
     model = UNetLarge()
     dummy = torch.randn(2, 1, 257, 251)
-    out = model(dummy)
-    print(out.shape)
+    masks, cls_logits = model(dummy)
+    print("masks:", masks.shape, "cls_logits:", cls_logits.shape)
 

@@ -1,45 +1,114 @@
-# Comprehensive Federated Learning Training Setup for FLAPS
-# This docker-compose orchestrates all components needed for federated training:
-# - ML App (FLAPS model)
-# - Flower Server (FL aggregator)
-# - Flower Ghost Client(s) (bridge between Flower and ML app)
+# Federated Learning setup for FLAPS.
+# Services:
+#   ml-app-1, ml-app-2  — always up, each owns a disjoint shard of MUSDB18HQ tracks
+#   flower-server       — FL aggregator  (profile: training)
+#   flower-client-1/2   — gRPC↔HTTP bridge per ml-app  (profile: training)
+#
+# Usage:
+#   Idle (ml-apps only):   docker compose -f docker-compose.federated.yaml up
+#   Start FL training:     docker compose -f docker-compose.federated.yaml --profile training up
 
+# ---------------------------------------------------------------------------
+# Shared fragments
+# ---------------------------------------------------------------------------
+x-ml-app-base: &ml-app-base
+  build:
+    context: .
+    dockerfile: deployment/Dockerfile
+  image: ml-app-flaps
+  environment: &ml-app-env
+    LOGGING_LEVEL:              ${LOGGING_LEVEL:-INFO}
+    DATA_ROOT:                  /app/dataset
+    FULL_TRACKS:                ${FULL_TRACKS:-false}
+    # Audio / spectrogram resolution — smaller = faster, less memory
+    SAMPLE_RATE:                ${SAMPLE_RATE:-8000}
+    SEGMENT_SECONDS:            ${SEGMENT_SECONDS:-2.0}
+    N_FFT:                      ${N_FFT:-512}
+    HOP_LENGTH:                 ${HOP_LENGTH:-128}
+    # Model size
+    MODEL_NAME:                 ${MODEL_NAME:-unet_small}
+    BASE_FILTERS:               ${BASE_FILTERS:-8}
+    # Training throughput caps (per round per client)
+    MAX_TRAIN_SEGMENTS:         ${MAX_TRAIN_SEGMENTS:-10}
+    MAX_EVAL_SEGMENTS:          ${MAX_EVAL_SEGMENTS:-4}
+    TRAIN_CHUNK_DURATION:       ${TRAIN_CHUNK_DURATION:-2.0}
+    TRAIN_CHUNK_OVERLAP:        ${TRAIN_CHUNK_OVERLAP:-0.0}
+    EVAL_BATCH_SIZE:            ${EVAL_BATCH_SIZE:-1}
+    USE_AMP:                    ${USE_AMP:-false}
+    NUM_CLIENTS:                ${N_CLIENTS:-2}
+    # Augmentation — stem dropout makes the classification task non-trivial
+    AUGMENT_TRAIN:              ${AUGMENT_TRAIN:-true}
+    AUGMENT_STEM_DROPOUT_PROB:  ${AUGMENT_STEM_DROPOUT_PROB:-0.3}
+    AUGMENT_PHASE_FLIP:         ${AUGMENT_PHASE_FLIP:-false}
+    AUGMENT_GAIN_DB:            ${AUGMENT_GAIN_DB:-6.0}
+    AUGMENT_NOISE_STD:          ${AUGMENT_NOISE_STD:-0.0}
+    AUGMENT_REMIX_PROB:         ${AUGMENT_REMIX_PROB:-0.0}
+    # Classification loss weight (on top of separation loss)
+    LOSS_CLS_WEIGHT:            ${LOSS_CLS_WEIGHT:-0.1}
+  tty: true
+  stdin_open: true
+  networks:
+    - federated
+  healthcheck:
+    test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:5000/docs')\""]
+    interval: 30s
+    timeout: 15s
+    retries: 5
+    start_period: 90s
+
+x-flower-client-base: &flower-client-base
+#  profiles: [training]
+  build:
+    context: ../../flower-ghostclient
+    dockerfile: deployment/Dockerfile
+  image: flower-ghostclient
+  environment:
+    LOGGING_LEVEL:          ${LOGGING_LEVEL:-INFO}
+    FLOWER_SERVER_ADDRESS:  flower-server-flaps:8080
+    SERVER_ADDRESS:         flower-server-flaps:8080
+  networks:
+    - federated
+  depends_on:
+    flower-server:
+      condition: service_healthy
+
+# ---------------------------------------------------------------------------
+# ML Apps  (always running, each with its own data shard and log dir)
+# ---------------------------------------------------------------------------
 services:
-  # ===== ML APPLICATION =====
-  # The FLAPS model serving with MobFedLS interface
-  ml-app:
-    build:
-      context: .
-      dockerfile: deployment/Dockerfile
-    image: ml-app-flaps
-    container_name: ml-app-flaps
+  ml-app-1:
+    <<: *ml-app-base
+    container_name: ml-app-flaps-1
     ports:
       - "5001:5000"
     volumes:
-      # Dataset with writable cache for manifest files
       - ../../../assets/datasets/musdb18hq:/app/dataset
-      - ../../../assets/logs:/app/logs
+      - ../../../assets/logs/client-1:/app/logs
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
-      LOGGING_LEVEL: ${LOGGING_LEVEL:-INFO}
-      DATA_ROOT: /app/dataset
-      FULL_TRACKS: ${FULL_TRACKS:-true}
-      TRAIN_CHUNK_DURATION: ${TRAIN_CHUNK_DURATION:-3.0}
-      TRAIN_CHUNK_OVERLAP: ${TRAIN_CHUNK_OVERLAP:-0.0}
-      SAMPLE_RATE: ${SAMPLE_RATE:-16000}
-      MODEL_NAME: ${MODEL_NAME:-unet_small}
-      BASE_FILTERS: ${BASE_FILTERS:-16}
-      USE_AMP: ${USE_AMP:-true}
-      EVAL_BATCH_SIZE: ${EVAL_BATCH_SIZE:-1}
-    tty: true
-    stdin_open: true
-    networks:
-      - federated
-    # healthcheck temporarily removed for debugging
+      <<: *ml-app-env
+      CLIENT_ID: "0"
+      TARGET_STEM: ${TARGET_STEM_1:-vocals}
 
-  # ===== FLOWER SERVER =====
-  # Aggregates model updates from clients using FedAvg (or other algorithms)
+  ml-app-2:
+    <<: *ml-app-base
+    container_name: ml-app-flaps-2
+    ports:
+      - "5002:5000"
+    volumes:
+      - ../../../assets/datasets/musdb18hq:/app/dataset
+      - ../../../assets/logs/client-2:/app/logs
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      <<: *ml-app-env
+      CLIENT_ID: "1"
+      TARGET_STEM: ${TARGET_STEM_2:-drums}
+
+# ---------------------------------------------------------------------------
+# Flower Server  (training profile only)
+# ---------------------------------------------------------------------------
   flower-server:
+#    profiles: [training]
     build:
       context: ../../flower-server
       dockerfile: deployment/Dockerfile
@@ -48,49 +117,67 @@ services:
     ports:
       - "8080:8080"
     environment:
-      LOGGING_LEVEL: ${LOGGING_LEVEL:-INFO}
-      # These are read by the flower server main.py
-      SERVER_PORT: 8080
-      N_CLIENTS: ${N_CLIENTS:-1}
-      N_ROUNDS: ${N_ROUNDS:-5}
-      N_EPOCHS: ${N_EPOCHS:-2}
-      BATCH_SIZE: ${BATCH_SIZE:-32}
-      ROUND_TIMEOUT: ${ROUND_TIMEOUT:-20.0}
-      FL_ALGORITHM: ${FL_ALGORITHM:-FedAvg}
-      ML_APP_ADDRESS: ml-app:5000
-      MAESTRO_MANAGER_ADDRESS: ""
+      LOGGING_LEVEL:            ${LOGGING_LEVEL:-INFO}
+      SERVER_PORT:              8080
+      N_CLIENTS:                ${N_CLIENTS:-2}
+      N_ROUNDS:                 ${N_ROUNDS:-3}
+      N_EPOCHS:                 ${N_EPOCHS:-1}
+      BATCH_SIZE:               ${BATCH_SIZE:-1}
+      ROUND_TIMEOUT:            ${ROUND_TIMEOUT:-0}
+      FL_ALGORITHM:             ${FL_ALGORITHM:-FedAvg}
+      # Fetch initial global parameters from client-1
+      ML_APP_ADDRESS:           ml-app-1:5000
+      MAESTRO_MANAGER_ADDRESS:  ""
     networks:
       - federated
     depends_on:
-      ml-app:
+      ml-app-1:
         condition: service_healthy
-    # healthcheck temporarily removed for debugging
+      ml-app-2:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import socket,sys; s=socket.socket(); s.settimeout(2); r=s.connect_ex(('localhost',8080)); s.close(); sys.exit(r)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 60s
 
-  # ===== FLOWER GHOST CLIENT =====
-  # Bridges HTTP requests from Flower to the ML app's interface
-  flower-client:
-    build:
-      context: ../../flower-ghostclient
-      dockerfile: deployment/Dockerfile
-    image: flower-ghostclient
+# ---------------------------------------------------------------------------
+# Flower Ghost Clients  (training profile only, one per ml-app)
+# ---------------------------------------------------------------------------
+  flower-client-1:
+    <<: *flower-client-base
     container_name: flower-client-1-flaps
     environment:
-      LOGGING_LEVEL: ${LOGGING_LEVEL:-INFO}
-      ML_APP_ADDRESS: http://ml-app:5000
-      FLOWER_SERVER_ADDRESS: flower-server-flaps:8080
-      # Backwards-compatible env var expected by client_flower.py
-      SERVER_ADDRESS: "flower-server-flaps:8080"
-      CLIENT_NAME: client-1
-    networks:
-      - federated
+      LOGGING_LEVEL:          ${LOGGING_LEVEL:-INFO}
+      ML_APP_ADDRESS:         http://ml-app-1:5000
+      FLOWER_SERVER_ADDRESS:  flower-server-flaps:8080
+      SERVER_ADDRESS:         flower-server-flaps:8080
+      CLIENT_NAME:            client-1
+      CLIENT_N:               "1"
     depends_on:
-      ml-app:
+      ml-app-1:
         condition: service_healthy
       flower-server:
         condition: service_healthy
 
+  flower-client-2:
+    <<: *flower-client-base
+    container_name: flower-client-2-flaps
+    environment:
+      LOGGING_LEVEL:          ${LOGGING_LEVEL:-INFO}
+      ML_APP_ADDRESS:         http://ml-app-2:5000
+      FLOWER_SERVER_ADDRESS:  flower-server-flaps:8080
+      SERVER_ADDRESS:         flower-server-flaps:8080
+      CLIENT_NAME:            client-2
+      CLIENT_N:               "2"
+    depends_on:
+      ml-app-2:
+        condition: service_healthy
+      flower-server:
+        condition: service_healthy
+
+# ---------------------------------------------------------------------------
 networks:
   federated:
     driver: bridge
-
-

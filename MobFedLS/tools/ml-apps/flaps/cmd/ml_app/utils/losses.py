@@ -75,6 +75,22 @@ def sisdr_loss(est: torch.Tensor, ref: torch.Tensor, eps: float = 1e-8) -> torch
     return -torch.mean(sisdr)
 
 
+def stem_classification_loss(
+    logits: torch.Tensor,
+    presence_labels: torch.Tensor,
+    stem_index: int,
+) -> torch.Tensor:
+    """BCE loss on a single stem's classification logit.
+
+    logits:          (batch, n_stems) — raw model outputs
+    presence_labels: (batch, n_stems) — 1.0 if stem present, 0.0 if dropped
+    stem_index:      which column to train (the client's assigned stem)
+    """
+    return F.binary_cross_entropy_with_logits(
+        logits[:, stem_index], presence_labels[:, stem_index]
+    )
+
+
 def composite_separation_loss(
     pred_masks: torch.Tensor,
     target_masks: torch.Tensor,

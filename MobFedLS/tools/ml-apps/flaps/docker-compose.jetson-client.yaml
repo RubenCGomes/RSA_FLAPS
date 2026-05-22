@@ -1,0 +1,110 @@
+# Jetson 2 / Jetson 3 — FL Client Node
+#
+# Runs: ml-app + flower-ghostclient
+#
+# This file is shared by both client Jetsons — the CLIENT_ID and TARGET_STEM
+# env vars are the only things that differ between them.
+#
+# Required env vars — copy .env.jetson.example to .env and fill in:
+#   AGGREGATOR_IP   Jetson 1 mesh IP — ghost client connects to flower-server here
+#   CLIENT_ID       0 for Jetson 2, 1 for Jetson 3
+#   TARGET_STEM     stem this node specialises on (e.g. vocals, drums)
+#   DATASET_PATH    absolute path to the MUSDB18HQ dataset on this machine
+#
+# Usage:
+#   On Jetson 2:  CLIENT_ID=0 TARGET_STEM=vocals docker compose -f docker-compose.jetson-client.yaml up --build
+#   On Jetson 3:  CLIENT_ID=1 TARGET_STEM=drums  docker compose -f docker-compose.jetson-client.yaml up --build
+#
+# Notes:
+#   - USE_AMP defaults to true (Jetson GPU supports mixed precision)
+#   - /dev/snd is passed through for the /external/playback endpoint
+#   - The NVIDIA runtime gives the container access to the Jetson GPU
+
+# ---------------------------------------------------------------------------
+# Shared fragments
+# ---------------------------------------------------------------------------
+x-ml-app-base: &ml-app-base
+  build:
+    context: .
+    dockerfile: deployment/Dockerfile
+  image: ml-app-flaps
+  runtime: nvidia
+  environment: &ml-app-env
+    NVIDIA_VISIBLE_DEVICES:       all
+    LOGGING_LEVEL:                ${LOGGING_LEVEL:-INFO}
+    DATA_ROOT:                    /app/dataset
+    FULL_TRACKS:                  ${FULL_TRACKS:-false}
+    SAMPLE_RATE:                  ${SAMPLE_RATE:-8000}
+    SEGMENT_SECONDS:              ${SEGMENT_SECONDS:-2.0}
+    N_FFT:                        ${N_FFT:-512}
+    HOP_LENGTH:                   ${HOP_LENGTH:-128}
+    MODEL_NAME:                   ${MODEL_NAME:-unet_small}
+    BASE_FILTERS:                 ${BASE_FILTERS:-8}
+    MAX_TRAIN_SEGMENTS:           ${MAX_TRAIN_SEGMENTS:-10}
+    MAX_EVAL_SEGMENTS:            ${MAX_EVAL_SEGMENTS:-4}
+    TRAIN_CHUNK_DURATION:         ${TRAIN_CHUNK_DURATION:-2.0}
+    TRAIN_CHUNK_OVERLAP:          ${TRAIN_CHUNK_OVERLAP:-0.0}
+    EVAL_BATCH_SIZE:              ${EVAL_BATCH_SIZE:-1}
+    USE_AMP:                      ${USE_AMP:-true}
+    NUM_CLIENTS:                  ${N_CLIENTS:-2}
+    AUGMENT_TRAIN:                ${AUGMENT_TRAIN:-true}
+    AUGMENT_STEM_DROPOUT_PROB:    ${AUGMENT_STEM_DROPOUT_PROB:-0.3}
+    AUGMENT_PHASE_FLIP:           ${AUGMENT_PHASE_FLIP:-false}
+    AUGMENT_GAIN_DB:              ${AUGMENT_GAIN_DB:-6.0}
+    AUGMENT_NOISE_STD:            ${AUGMENT_NOISE_STD:-0.0}
+    AUGMENT_REMIX_PROB:           ${AUGMENT_REMIX_PROB:-0.0}
+    LOSS_CLS_WEIGHT:              ${LOSS_CLS_WEIGHT:-0.1}
+  devices:
+    - /dev/snd:/dev/snd
+  tty: true
+  stdin_open: true
+  networks:
+    - local
+  healthcheck:
+    test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:5000/docs')\""]
+    interval: 30s
+    timeout: 15s
+    retries: 5
+    start_period: 90s
+
+# ---------------------------------------------------------------------------
+# Services
+# ---------------------------------------------------------------------------
+services:
+  ml-app:
+    <<: *ml-app-base
+    container_name: ml-app-flaps-${CLIENT_ID}
+    ports:
+      - "5000:5000"
+    volumes:
+      - ${DATASET_PATH}:/app/dataset:ro
+      - ${LOGS_PATH:-./logs}:/app/logs
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      <<: *ml-app-env
+      CLIENT_ID:    "${CLIENT_ID}"
+      TARGET_STEM:  "${TARGET_STEM}"
+
+  flower-ghostclient:
+    build:
+      context: ../../flower-ghostclient
+      dockerfile: deployment/Dockerfile
+    image: flower-ghostclient
+    container_name: flower-ghostclient-flaps-${CLIENT_ID}
+    environment:
+      LOGGING_LEVEL:          ${LOGGING_LEVEL:-INFO}
+      ML_APP_ADDRESS:         http://ml-app:5000
+      FLOWER_SERVER_ADDRESS:  ${AGGREGATOR_IP}:8080
+      SERVER_ADDRESS:         ${AGGREGATOR_IP}:8080
+      CLIENT_NAME:            client-${CLIENT_ID}
+      CLIENT_N:               "${CLIENT_ID}"
+    networks:
+      - local
+    depends_on:
+      ml-app:
+        condition: service_healthy
+
+# ---------------------------------------------------------------------------
+networks:
+  local:
+    driver: bridge

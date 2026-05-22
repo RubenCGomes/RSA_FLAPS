@@ -6,9 +6,9 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-ROOT_DIR = Path(__file__).resolve().parents[1]
-if str(ROOT_DIR) not in sys.path:
-    sys.path.insert(0, str(ROOT_DIR))
+CMD_DIR = Path(__file__).resolve().parents[1] / "cmd"
+if str(CMD_DIR) not in sys.path:
+    sys.path.insert(0, str(CMD_DIR))
 
 import torch
 

@@ -67,7 +67,7 @@ class UpBlock(nn.Module):
 
 
 class UNetSmall(nn.Module):
-    """Residual spectrogram U-Net that predicts four separation probability masks."""
+    """Residual spectrogram U-Net with dual heads: separation masks + stem classification."""
 
     def __init__(self, in_channels: int = 1, out_channels: int = 4, base_filters: int = 24, dropout: float = 0.1):
         super().__init__()
@@ -86,6 +86,9 @@ class UNetSmall(nn.Module):
         self.up2 = UpBlock(base_filters * 4, base_filters * 2, base_filters * 2, dropout=dropout)
         self.up1 = UpBlock(base_filters * 2, base_filters, base_filters, dropout=dropout)
         self.head = nn.Conv2d(base_filters, out_channels, kernel_size=1)
+        # Classification head: bottleneck → GAP → linear → one logit per stem
+        self.cls_pool = nn.AdaptiveAvgPool2d(1)
+        self.cls_head = nn.Linear(base_filters * 12, out_channels)
 
     @staticmethod
     def _pad_to_multiple(x: torch.Tensor, multiple: int = 16) -> Tuple[torch.Tensor, Tuple[int, int]]:
@@ -105,7 +108,12 @@ class UNetSmall(nn.Module):
             x = x[..., :, :-pad_w]
         return x
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Return (separation_masks, cls_logits).
+
+        separation_masks: (batch, stems, freq, time) — softmax probabilities
+        cls_logits:       (batch, stems) — raw logits for stem presence classification
+        """
         if x.dim() != 4:
             raise ValueError(f"Expected 4D input (batch, channels, freq, time), got {tuple(x.shape)}")
 
@@ -116,6 +124,7 @@ class UNetSmall(nn.Module):
         s4 = self.down3(s3)
         s5 = self.down4(s4)
         b = self.bottleneck(s5)
+        cls_logits = self.cls_head(self.cls_pool(b).flatten(1))
         x = self.up4(b, s4)
         x = self.up3(x, s3)
         x = self.up2(x, s2)
@@ -123,11 +132,11 @@ class UNetSmall(nn.Module):
         x = self.head(x)
         x = torch.softmax(x, dim=1)
         x = self._crop(x, pad_hw)
-        return x
+        return x, cls_logits
 
 
 if __name__ == "__main__":
     model = UNetSmall()
     dummy = torch.randn(2, 1, 257, 251)
-    out = model(dummy)
-    print(out.shape)
+    masks, cls_logits = model(dummy)
+    print("masks:", masks.shape, "cls_logits:", cls_logits.shape)

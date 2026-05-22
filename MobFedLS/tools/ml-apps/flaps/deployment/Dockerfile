@@ -28,12 +28,8 @@ RUN pip3 install --upgrade pip && \
 	fi && \
 	pip3 install --no-cache-dir -r requirements_clientML.txt
 
-COPY clientML.py /app/
-COPY ml_app /app/ml_app/
-COPY deployment/docker-entrypoint.sh /app/docker-entrypoint.sh
-
-RUN chmod +x /app/docker-entrypoint.sh
+COPY cmd /app/
 
 EXPOSE 5000
-ENTRYPOINT ["/bin/sh", "/app/docker-entrypoint.sh"]
+CMD ["python3", "main.py"]
 

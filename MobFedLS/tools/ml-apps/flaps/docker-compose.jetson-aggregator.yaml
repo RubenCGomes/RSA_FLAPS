@@ -1,0 +1,42 @@
+# Jetson 1 — FL Aggregator
+#
+# Runs: flower-server
+#
+# Startup order (IMPORTANT):
+#   1. Start both client Jetsons first and wait for their ml-apps to be healthy.
+#   2. Start this file — the flower-server fetches initial model parameters
+#      from CLIENT_1_IP:5000 on startup, so that node must be reachable.
+#
+# Required env vars — copy .env.jetson.example to .env and fill in:
+#   AGGREGATOR_IP   this machine's mesh IP (informational, used for docs)
+#   CLIENT_1_IP     Jetson 2 mesh IP — flower-server pulls initial params from here
+#
+# Usage:
+#   docker compose -f docker-compose.jetson-aggregator.yaml up --build
+
+services:
+  flower-server:
+    build:
+      context: ../../flower-server
+      dockerfile: deployment/Dockerfile
+    image: flower-server
+    container_name: flower-server-flaps
+    ports:
+      - "8080:8080"
+    environment:
+      LOGGING_LEVEL:            ${LOGGING_LEVEL:-INFO}
+      SERVER_PORT:              8080
+      N_CLIENTS:                ${N_CLIENTS:-2}
+      N_ROUNDS:                 ${N_ROUNDS:-3}
+      N_EPOCHS:                 ${N_EPOCHS:-1}
+      BATCH_SIZE:               ${BATCH_SIZE:-1}
+      ROUND_TIMEOUT:            ${ROUND_TIMEOUT:-0}
+      FL_ALGORITHM:             ${FL_ALGORITHM:-FedAvg}
+      ML_APP_ADDRESS:           ${CLIENT_1_IP}:5000
+      MAESTRO_MANAGER_ADDRESS:  ""
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import socket,sys; s=socket.socket(); s.settimeout(2); r=s.connect_ex(('localhost',8080)); s.close(); sys.exit(r)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 60s

@@ -47,7 +47,7 @@ def _resolve_data_root() -> str:
 		value = _env_str(env_name)
 		if value:
 			return value
-	repo_root = Path(__file__).resolve().parents[3]
+	repo_root = Path(__file__).resolve().parents[4]
 	return str(repo_root / "assets" / "datasets" / "musdb18hq")
 
 
@@ -84,6 +84,7 @@ def _build_app() -> MLApp:
 		augment_shift_seconds=_env_float("AUGMENT_SHIFT_SECONDS", 0.0) or 0.0,
 		augment_remix_prob=_env_float("AUGMENT_REMIX_PROB", 0.0) or 0.0,
 		augment_phase_flip=_env_bool("AUGMENT_PHASE_FLIP", default=False) or False,
+		target_stem=_env_str("TARGET_STEM", None),
 	)
 
 
@@ -133,6 +134,7 @@ def _merge_fit_config(config: dict | None) -> dict:
 	merged.setdefault("loss_consistency_weight", _env_float("LOSS_CONSISTENCY_WEIGHT", 0.05) or 0.05)
 	merged.setdefault("loss_kl_weight", _env_float("LOSS_KL_WEIGHT", 0.05) or 0.05)
 	merged.setdefault("loss_sisdr_weight", _env_float("LOSS_SISDR_WEIGHT", 0.20) or 0.20)
+	merged.setdefault("loss_cls_weight", _env_float("LOSS_CLS_WEIGHT", 0.1) or 0.1)
 	merged.setdefault("use_amp", _env_bool("USE_AMP", default=APP.use_amp) if APP.device.type == "cuda" else False)
 	return merged
 
@@ -141,10 +143,10 @@ def fit(config):
 	result = APP.fit(None, _merge_fit_config(config))
 	if isinstance(result, tuple) and len(result) == 3:
 		_, num_examples, metrics = result
-		return num_examples, metrics
+		return num_examples, _flower_compatible_metrics(metrics)
 	if isinstance(result, tuple) and len(result) == 2:
 		num_examples, metrics = result
-		return num_examples, metrics
+		return num_examples, _flower_compatible_metrics(metrics)
 	raise TypeError(f"Unexpected fit result from MLApp: {type(result)!r}")
 
 
@@ -164,6 +166,17 @@ def _normalize_evaluate_result(result: Any) -> tuple[float, int, dict]:
 	raise TypeError(f"Unexpected evaluate result from MLApp: {type(result)!r}")
 
 
+def _flower_compatible_metrics(metrics: dict) -> dict:
+	"""Return only Flower-serializable scalar values.
+
+	Flower's gRPC layer calls scalar_to_proto() on every metric value and raises
+	ValueError for non-scalar types (dict, list, etc.).  Per-stem dicts and the
+	raw config are useful locally but must be excluded before they reach Flower.
+	"""
+	_SCALAR_TYPES = (bool, bytes, float, int, str)
+	return {k: v for k, v in metrics.items() if isinstance(v, _SCALAR_TYPES)}
+
+
 def evaluate(config):
 	merged = dict(config or {})
 	merged.setdefault("split", _env_str("EVAL_SPLIT", "val") or "val")
@@ -176,7 +189,8 @@ def evaluate(config):
 	merged.setdefault("loss_kl_weight", _env_float("LOSS_KL_WEIGHT", 0.05) or 0.05)
 	merged.setdefault("loss_sisdr_weight", _env_float("LOSS_SISDR_WEIGHT", 0.20) or 0.20)
 	result = APP.evaluate(None, merged)
-	return _normalize_evaluate_result(result)
+	loss, num_examples, metrics = _normalize_evaluate_result(result)
+	return loss, num_examples, _flower_compatible_metrics(metrics)
 
 
 def _preview_input_path() -> str | None:

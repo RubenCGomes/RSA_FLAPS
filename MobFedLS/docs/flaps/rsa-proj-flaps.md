@@ -35,11 +35,10 @@ We will use **EmuCD** to model mobility and evaluate both use cases under contro
 * End-to-end update latency in multi-hop mesh paths
 
 #### Implementation
-The project would be initially deployed on simualted nodes to train and validate the models, which would then result in running it on a physical cluster (Raspberry Pi clients and NVIDIA Jetson aggregator) connected through **802.11s mesh mode**. 
+The project would be initially deployed on simualted nodes to train and validate the models, which would then result in running it on a physical cluster (NVIDIA Jetson clients and a NVIDIA Jetson aggregator) connected through **802.11s mesh mode**. 
 
 ### 4. Necessary Hardware
-* **1x NVIDIA Jetson:** Serves as the **FL Aggregator**, orchestration node, and evaluation server.
-* **2x Raspberry Pi 5:** Act as autonomous **FL Clients** and edge acoustic sensors/processors.
+* **3x NVIDIA Jetson:** One serving as the **FL Aggregator**, and the other two as **FL Clients**.
 * **3x Wi-Fi Adapters:** Must support **802.11s (mesh point mode)** for resilient peer-to-peer communication.
 * **3x Speakers:** Used to demonstrate distributed playback after local source extraction.
 * **3x USB microphones:** For local audio capture to identify what's being currently captured.
@@ -60,14 +59,14 @@ graph TD
         C((Self-Healing Mesh))
     end
 
-    subgraph "Node A (RPi - Drums Profile)"
+    subgraph "Node A (Jetson - Drums Profile)"
         D1[Local Data: Drums + Ambient Events] --> E1[Local Training]
         E1 -- "Weights" --> C
         C -- "Global Model" --> G1[Inference: Detect + Extract]
         G1 --> H1((Output: Events + Drums Track))
     end
 
-    subgraph "Node B (RPi - Guitar Profile)"
+    subgraph "Node B (Jetson - Guitar Profile)"
         D2[Local Data: Guitar + Ambient Events] --> E2[Local Training]
         E2 -- "Weights" --> C
         C -- "Global Model" --> G2[Inference: Detect + Extract]
@@ -82,7 +81,7 @@ Furthermore, the sequence diagram below represents an end-to-end cycle where nod
 sequenceDiagram
     participant J as NVIDIA Jetson (Aggregator)
     participant I as IPFS Network
-    participant P as Raspberry Pi Nodes (Clients)
+    participant P as NVIDIA Jetson Nodes (Clients)
     participant S as Local Speakers | Microphone
 
     Note over J: Stage 1: Ingestion and Global Round Setup

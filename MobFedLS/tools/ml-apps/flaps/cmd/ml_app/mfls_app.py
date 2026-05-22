@@ -16,7 +16,7 @@ from .dataset.musdb_loader import MusdbSeparationDataset
 from .models.unet_large import UNetLarge
 from .models.unet_small import UNetSmall
 from .utils.audio import istft_from_mag_phase, si_sdr, stem_names
-from .utils.losses import composite_separation_loss
+from .utils.losses import composite_separation_loss, stem_classification_loss
 
 
 class MLApp:
@@ -45,8 +45,9 @@ class MLApp:
         augment_shift_seconds: float = 0.0,
         augment_remix_prob: float = 0.0,
         augment_phase_flip: bool = False,
+        target_stem: str | None = None,
     ):
-        self.repo_root = Path(__file__).resolve().parents[1]
+        self.repo_root = Path(__file__).resolve().parents[2]
         self.data_root = Path(data_root or os.environ.get("MUSDB_ROOT", self.repo_root / "musdb18hq"))
         self.split = split
         self.sr = int(sr)
@@ -67,6 +68,11 @@ class MLApp:
         self.augment_shift_seconds = float(augment_shift_seconds)
         self.augment_remix_prob = float(augment_remix_prob)
         self.augment_phase_flip = bool(augment_phase_flip)
+        raw_target = (target_stem or os.environ.get("TARGET_STEM", "")).strip() or None
+        if raw_target is not None and raw_target not in stem_names():
+            raise ValueError(f"TARGET_STEM {raw_target!r} must be one of {stem_names()}")
+        self.target_stem: str | None = raw_target
+        self.target_stem_index: int | None = stem_names().index(raw_target) if raw_target else None
         self.device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
         self.use_amp = _env_bool("USE_AMP", default=self.device.type == "cuda") if use_amp is None else bool(use_amp)
         self.model = self._build_model(model_name)
@@ -96,7 +102,11 @@ class MLApp:
             raise ValueError(f"Parameter count mismatch: expected {len(keys)}, received {len(parameters)}")
         updated = {}
         for key, array in zip(keys, parameters):
-            tensor = torch.as_tensor(array, dtype=state_dict[key].dtype)
+            np_array = np.asarray(array)
+            # Some decoded payloads are read-only views; copy to guarantee safe tensor writes.
+            if not np_array.flags.writeable:
+                np_array = np_array.copy()
+            tensor = torch.as_tensor(np_array, dtype=state_dict[key].dtype)
             updated[key] = tensor
         self.model.load_state_dict(updated)
 
@@ -113,6 +123,10 @@ class MLApp:
         }
 
     def fit(self, parameters: List[np.ndarray] | None, config: dict | None = None):
+        with self.lock:
+            return self._fit(parameters, config)
+
+    def _fit(self, parameters: List[np.ndarray] | None, config: dict | None = None):
         config = {} if config is None else dict(config)
         epochs = int(config.get("epochs", 1))
         batch_size = int(config.get("batch_size", 1))
@@ -125,6 +139,7 @@ class MLApp:
         loss_consistency_weight = float(config.get("loss_consistency_weight", 0.05))
         loss_kl_weight = float(config.get("loss_kl_weight", 0.05))
         loss_sisdr_weight = float(config.get("loss_sisdr_weight", 0.20))
+        loss_cls_weight = float(config.get("loss_cls_weight", 0.1))
         train_chunk_duration = config.get("train_chunk_duration")
         train_chunk_overlap = float(config.get("train_chunk_overlap", 0.0))
         if not 0.0 <= train_chunk_overlap < 1.0:
@@ -153,6 +168,8 @@ class MLApp:
         total_consistency = 0.0
         total_kl = 0.0
         total_sisdr_loss = 0.0
+        total_cls_loss = 0.0
+        total_cls_correct = 0.0
         steps = 0
         scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
 
@@ -164,6 +181,10 @@ class MLApp:
                 mix_mag_raw = batch["mix_mag_raw"].to(self.device)
                 target_masks = batch["target_masks"].to(self.device)
                 target_mags = batch["target_mags"].to(self.device)
+
+                # Presence labels: 1 if stem energy > threshold, 0 if dropped by augmentation
+                stem_energy = target_mags.mean(dim=(-2, -1))  # (batch, 4)
+                presence_labels = (stem_energy > 1e-4).float()
 
                 chunk_ranges = self._build_chunk_ranges(
                     total_frames=int(mix_mag.shape[-1]),
@@ -187,16 +208,29 @@ class MLApp:
                     device_type = self.device.type if self.device.type == "cpu" else "cuda"
                     autocast_ctx = torch.autocast(device_type=device_type, dtype=torch.float16, enabled=use_amp)
                     with autocast_ctx:
-                        pred_masks = self.model(mix_mag_chunk)
+                        pred_masks, cls_logits = self.model(mix_mag_chunk)
                         est_mags = pred_masks * mix_mag_raw_chunk.unsqueeze(1)
+                        if self.target_stem_index is not None:
+                            idx = self.target_stem_index
+                            pred_masks_sup = pred_masks[:, idx:idx+1]
+                            target_masks_sup = target_masks_chunk[:, idx:idx+1]
+                            est_mags_sup = est_mags[:, idx:idx+1]
+                            target_mags_sup = target_mags_chunk[:, idx:idx+1]
+                            consistency_w = 0.0
+                        else:
+                            pred_masks_sup = pred_masks
+                            target_masks_sup = target_masks_chunk
+                            est_mags_sup = est_mags
+                            target_mags_sup = target_mags_chunk
+                            consistency_w = loss_consistency_weight
                         loss, components = composite_separation_loss(
-                            pred_masks,
-                            target_masks_chunk,
-                            est_mags,
-                            target_mags_chunk,
+                            pred_masks_sup,
+                            target_masks_sup,
+                            est_mags_sup,
+                            target_mags_sup,
                             mask_weight=loss_mask_weight,
                             mag_weight=loss_mag_weight,
-                            consistency_weight=loss_consistency_weight,
+                            consistency_weight=consistency_w,
                             kl_weight=loss_kl_weight,
                             sisdr_weight=loss_sisdr_weight,
                         )
@@ -205,6 +239,15 @@ class MLApp:
                         consistency_loss = components["consistency_loss"]
                         kl_loss = components["kl_loss"]
                         sisdr_l = components["sisdr_loss"]
+                        if self.target_stem_index is not None and loss_cls_weight > 0:
+                            cls_loss = stem_classification_loss(cls_logits, presence_labels, self.target_stem_index)
+                            loss = loss + loss_cls_weight * cls_loss
+                            with torch.no_grad():
+                                cls_pred = torch.sigmoid(cls_logits[:, self.target_stem_index]) > 0.5
+                                cls_correct = (cls_pred == presence_labels[:, self.target_stem_index].bool()).float().mean()
+                        else:
+                            cls_loss = torch.zeros(1, device=self.device)
+                            cls_correct = torch.zeros(1, device=self.device)
 
                     # Average chunk contributions so one batch has comparable gradient scale
                     scaled_loss = loss / (accumulation_steps * num_chunks)
@@ -219,6 +262,8 @@ class MLApp:
                     batch_consistency_loss += float(consistency_loss.detach().item())
                     batch_kl_loss += float(kl_loss.detach().item())
                     batch_sisdr_loss += float(sisdr_l.detach().item())
+                    total_cls_loss += float(cls_loss.detach().item()) / num_chunks
+                    total_cls_correct += float(cls_correct.detach().item()) / num_chunks
 
                 if batch_index % accumulation_steps == 0 or batch_index == len(loader):
                     if use_amp:
@@ -252,16 +297,22 @@ class MLApp:
             "consistency_loss": total_consistency / max(1, steps),
             "kl_loss": total_kl / max(1, steps),
             "sisdr_loss": total_sisdr_loss / max(1, steps),
+            "cls_loss": total_cls_loss / max(1, steps),
+            "cls_accuracy": total_cls_correct / max(1, steps),
             "epochs": epochs,
             "batch_size": batch_size,
             "n_examples": len(dataset),
-            "config": config,
             "learning_rate": float(self.optimizer.param_groups[0]["lr"]),
+            "target_stem": self.target_stem or "all",
         }
         self._save_checkpoint("latest_train.pt")
         return self.get_parameters(), len(dataset), metrics
 
     def evaluate(self, parameters: List[np.ndarray] | None, *args, **kwargs) -> dict:
+        with self.lock:
+            return self._evaluate(parameters, *args, **kwargs)
+
+    def _evaluate(self, parameters: List[np.ndarray] | None, *args, **kwargs) -> dict:
         config_arg = args[0] if args else kwargs.get("config")
         config = {} if config_arg is None else dict(config_arg)
         split = config.get("split", "val")
@@ -288,6 +339,8 @@ class MLApp:
         total_consistency = 0.0
         total_kl = 0.0
         total_sisdr_loss = 0.0
+        total_cls_loss = 0.0
+        total_cls_correct = 0.0
         total_si_sdr = {stem: [] for stem in stem_names()}
         total_si_sdr_mix = {stem: [] for stem in stem_names()}
         steps = 0
@@ -303,16 +356,37 @@ class MLApp:
                 device_type = self.device.type if self.device.type == "cpu" else "cuda"
                 autocast_ctx = torch.autocast(device_type=device_type, dtype=torch.float16, enabled=use_amp)
                 with autocast_ctx:
-                    pred_masks = self.model(mix_mag)
+                    pred_masks, cls_logits = self.model(mix_mag)
+                    stem_energy = target_mags.mean(dim=(-2, -1))
+                    presence_labels = (stem_energy > 1e-4).float()
+                    if self.target_stem_index is not None:
+                        cls_l = stem_classification_loss(cls_logits, presence_labels, self.target_stem_index)
+                        cls_pred = torch.sigmoid(cls_logits[:, self.target_stem_index]) > 0.5
+                        cls_acc = (cls_pred == presence_labels[:, self.target_stem_index].bool()).float().mean()
+                        total_cls_loss += float(cls_l.item())
+                        total_cls_correct += float(cls_acc.item())
                     est_mags = pred_masks * mix_mag_raw.unsqueeze(1)
+                    if self.target_stem_index is not None:
+                        idx = self.target_stem_index
+                        pred_masks_sup = pred_masks[:, idx:idx+1]
+                        target_masks_sup = target_masks[:, idx:idx+1]
+                        est_mags_sup = est_mags[:, idx:idx+1]
+                        target_mags_sup = target_mags[:, idx:idx+1]
+                        consistency_w = 0.0
+                    else:
+                        pred_masks_sup = pred_masks
+                        target_masks_sup = target_masks
+                        est_mags_sup = est_mags
+                        target_mags_sup = target_mags
+                        consistency_w = loss_consistency_weight
                     loss, components = composite_separation_loss(
-                        pred_masks,
-                        target_masks,
-                        est_mags,
-                        target_mags,
+                        pred_masks_sup,
+                        target_masks_sup,
+                        est_mags_sup,
+                        target_mags_sup,
                         mask_weight=loss_mask_weight,
                         mag_weight=loss_mag_weight,
-                        consistency_weight=loss_consistency_weight,
+                        consistency_weight=consistency_w,
                         kl_weight=loss_kl_weight,
                         sisdr_weight=loss_sisdr_weight,
                     )
@@ -360,71 +434,70 @@ class MLApp:
             "sisdr_loss_spectral": total_sisdr_loss / max(1, steps),
             "mean_si_sdr": float(np.mean(list(mean_si_sdr.values()))) if mean_si_sdr else 0.0,
             "mean_si_sdr_improvement": float(np.mean(list(si_sdr_improvement.values()))) if si_sdr_improvement else 0.0,
-            "per_stem_si_sdr": mean_si_sdr,
-            "per_stem_si_sdr_improvement": si_sdr_improvement,
+            "cls_loss": total_cls_loss / max(1, steps),
+            "cls_accuracy": total_cls_correct / max(1, steps),
             "n_examples": len(dataset),
-            "config": config,
+            "target_stem": self.target_stem or "all",
         }
         if self.device.type == "cuda":
             torch.cuda.empty_cache()
         return metrics
 
     def predict(self, parameters: List[np.ndarray] | None, inputs: list, config: dict | None = None) -> list:
-         config = {} if config is None else dict(config)
-         if parameters is not None:
-             self.set_parameters(parameters)
-         use_amp = bool(config.get("use_amp", self.use_amp)) and self.device.type == "cuda"
-         chunk_duration = config.get("chunk_duration", None)
+        config = {} if config is None else dict(config)
+        if parameters is not None:
+            self.set_parameters(parameters)
+        use_amp = bool(config.get("use_amp", self.use_amp)) and self.device.type == "cuda"
+        chunk_duration = config.get("chunk_duration", None)
 
-         outputs = []
-         self.model.eval()
-         with torch.inference_mode():
-             for index, inp in enumerate(inputs):
-                 if isinstance(inp, str):
-                     wave, _ = self._load_wave_from_path(Path(inp))
-                     source_name = Path(inp).stem
-                 else:
-                     wave = np.asarray(inp, dtype=np.float32)
-                     source_name = f"sample_{index}"
+        outputs = []
+        self.model.eval()
+        with torch.inference_mode():
+            for index, inp in enumerate(inputs):
+                if isinstance(inp, str):
+                    wave, _ = self._load_wave_from_path(Path(inp))
+                    source_name = Path(inp).stem
+                else:
+                    wave = np.asarray(inp, dtype=np.float32)
+                    source_name = f"sample_{index}"
 
-                 mix_mag, mix_phase = self._wave_to_input(wave)
-                 mix_mag_raw = self._raw_magnitude(wave)
+                mix_mag, mix_phase = self._wave_to_input(wave)
+                mix_mag_raw = self._raw_magnitude(wave)
 
-                 # Use chunked processing if specified and spectrogram is large
-                 if chunk_duration is not None:
-                     pred_masks = self._predict_chunked(mix_mag, use_amp, chunk_duration)
-                 else:
-                     # Standard full processing
-                     mix_tensor = torch.from_numpy(mix_mag[None, None, ...]).to(self.device)
-                     device_type = self.device.type if self.device.type == "cpu" else "cuda"
-                     autocast_ctx = torch.autocast(device_type=device_type, dtype=torch.float16, enabled=use_amp)
-                     with autocast_ctx:
-                         pred_masks = self.model(mix_tensor).cpu().numpy()[0]
+                if chunk_duration is not None:
+                    pred_masks = self._predict_chunked(mix_mag, use_amp, chunk_duration)
+                else:
+                    mix_tensor = torch.from_numpy(mix_mag[None, None, ...]).to(self.device)
+                    device_type = self.device.type if self.device.type == "cpu" else "cuda"
+                    autocast_ctx = torch.autocast(device_type=device_type, dtype=torch.float16, enabled=use_amp)
+                    with autocast_ctx:
+                        pred_masks, _ = self.model(mix_tensor)
+                        pred_masks = pred_masks.cpu().numpy()[0]
 
-                 stem_paths = {}
-                 target_dir = self.run_path / f"predict_{source_name}"
-                 target_dir.mkdir(parents=True, exist_ok=True)
-                 for stem_index, stem in enumerate(stem_names()):
-                     est_mag = pred_masks[stem_index] * mix_mag_raw
-                     est_wave = istft_from_mag_phase(
-                         est_mag,
-                         mix_phase,
-                         n_fft=self.n_fft,
-                         hop_length=self.hop_length,
-                         length=wave.shape[-1],
-                     )
-                     stem_path = target_dir / f"{stem}.wav"
-                     self._write_wav(stem_path, est_wave)
-                     stem_paths[stem] = str(stem_path)
+                stem_paths = {}
+                target_dir = self.run_path / f"predict_{source_name}"
+                target_dir.mkdir(parents=True, exist_ok=True)
+                for stem_index, stem in enumerate(stem_names()):
+                    est_mag = pred_masks[stem_index] * mix_mag_raw
+                    est_wave = istft_from_mag_phase(
+                        est_mag,
+                        mix_phase,
+                        n_fft=self.n_fft,
+                        hop_length=self.hop_length,
+                        length=wave.shape[-1],
+                    )
+                    stem_path = target_dir / f"{stem}.wav"
+                    self._write_wav(stem_path, est_wave)
+                    stem_paths[stem] = str(stem_path)
 
-                 outputs.append({
-                     "input": str(inp) if isinstance(inp, str) else source_name,
-                     "output_dir": str(target_dir),
-                     "stems": stem_paths,
-                 })
-         if self.device.type == "cuda":
-             torch.cuda.empty_cache()
-         return outputs
+                outputs.append({
+                    "input": str(inp) if isinstance(inp, str) else source_name,
+                    "output_dir": str(target_dir),
+                    "stems": stem_paths,
+                })
+        if self.device.type == "cuda":
+            torch.cuda.empty_cache()
+        return outputs
 
     def in_usage(self, value: int | None = None):
         if value is None:
@@ -641,77 +714,102 @@ class MLApp:
         return path
 
     def _predict_chunked(self, mix_mag: np.ndarray, use_amp: bool, chunk_duration: float) -> np.ndarray:
-         """
-         Process spectrogram in overlapping chunks to reduce memory usage.
-         
-         Args:
-             mix_mag: Input spectrogram (freq, time)
-             use_amp: Whether to use automatic mixed precision
-             chunk_duration: Duration of each chunk in seconds
-         
-         Returns:
-             Stacked output masks (stems, freq, time)
-         """
-         # Calculate chunk size in time frames
-         frames_per_second = self.sr / self.hop_length
-         chunk_frames = int(chunk_duration * frames_per_second)
-         overlap_frames = chunk_frames // 4  # 25% overlap for smoother blending
-         
-         time_frames = mix_mag.shape[1]
-         
-         # If the spectrogram is smaller than chunk size, process all at once
-         if time_frames <= chunk_frames:
-             mix_tensor = torch.from_numpy(mix_mag[None, None, ...]).to(self.device)
-             device_type = self.device.type if self.device.type == "cpu" else "cuda"
-             autocast_ctx = torch.autocast(device_type=device_type, dtype=torch.float16, enabled=use_amp)
-             with autocast_ctx:
-                 pred_masks = self.model(mix_tensor).cpu().numpy()[0]
-             return pred_masks
-         
-         # Process in overlapping chunks
-         num_stems = 4  # MUSDB has 4 stems
-         result_masks = np.zeros((num_stems, mix_mag.shape[0], time_frames), dtype=np.float32)
-         blend_weights = np.zeros((time_frames,), dtype=np.float32)
-         
-         start = 0
-         while start < time_frames:
-             end = min(start + chunk_frames, time_frames)
-             chunk_mag = mix_mag[:, start:end]
-             
-             # Pad chunk if necessary
-             if chunk_mag.shape[1] < chunk_frames:
-                 pad_width = chunk_frames - chunk_mag.shape[1]
-                 chunk_mag = np.pad(chunk_mag, ((0, 0), (0, pad_width)), mode="reflect")
-             
-             # Process chunk
-             mix_tensor = torch.from_numpy(chunk_mag[None, None, ...]).to(self.device)
-             device_type = self.device.type if self.device.type == "cpu" else "cuda"
-             autocast_ctx = torch.autocast(device_type=device_type, dtype=torch.float16, enabled=use_amp)
-             with autocast_ctx:
-                 chunk_masks = self.model(mix_tensor).cpu().numpy()[0]
-             
-             # Remove padding from output if it was added
-             if chunk_mag.shape[1] > (end - start):
-                 chunk_masks = chunk_masks[:, :, :end - start]
-             
-             # Create blending window (cosine taper for smooth transitions)
-             window = np.hanning(chunk_masks.shape[2] * 2)[chunk_masks.shape[2]:]
-             
-             # Accumulate results with blending
-             chunk_end = min(start + chunk_masks.shape[2], time_frames)
-             chunk_len = chunk_end - start
-             result_masks[:, :, start:chunk_end] += chunk_masks[:, :, :chunk_len] * window[:chunk_len]
-             blend_weights[start:chunk_end] += window[:chunk_len]
-             
-             start += chunk_frames - overlap_frames
-             if self.device.type == "cuda":
-                 torch.cuda.empty_cache()
-         
-         # Normalize by blend weights to get final result
-         blend_weights[blend_weights == 0] = 1.0  # Avoid division by zero
-         result_masks = result_masks / blend_weights[None, None, :]
-         
-         return result_masks
+        """Process spectrogram in overlapping chunks to reduce peak memory usage."""
+        frames_per_second = self.sr / self.hop_length
+        chunk_frames = int(chunk_duration * frames_per_second)
+        overlap_frames = chunk_frames // 4  # 25% overlap for smooth boundary blending
+
+        time_frames = mix_mag.shape[1]
+
+        if time_frames <= chunk_frames:
+            mix_tensor = torch.from_numpy(mix_mag[None, None, ...]).to(self.device)
+            device_type = self.device.type if self.device.type == "cpu" else "cuda"
+            autocast_ctx = torch.autocast(device_type=device_type, dtype=torch.float16, enabled=use_amp)
+            with autocast_ctx:
+                pred_masks, _ = self.model(mix_tensor)
+                pred_masks = pred_masks.cpu().numpy()[0]
+            return pred_masks
+
+        num_stems = 4
+        result_masks = np.zeros((num_stems, mix_mag.shape[0], time_frames), dtype=np.float32)
+        blend_weights = np.zeros((time_frames,), dtype=np.float32)
+
+        start = 0
+        while start < time_frames:
+            end = min(start + chunk_frames, time_frames)
+            chunk_mag = mix_mag[:, start:end]
+
+            if chunk_mag.shape[1] < chunk_frames:
+                pad_width = chunk_frames - chunk_mag.shape[1]
+                chunk_mag = np.pad(chunk_mag, ((0, 0), (0, pad_width)), mode="reflect")
+
+            mix_tensor = torch.from_numpy(chunk_mag[None, None, ...]).to(self.device)
+            device_type = self.device.type if self.device.type == "cpu" else "cuda"
+            autocast_ctx = torch.autocast(device_type=device_type, dtype=torch.float16, enabled=use_amp)
+            with autocast_ctx:
+                chunk_masks, _ = self.model(mix_tensor)
+                chunk_masks = chunk_masks.cpu().numpy()[0]
+
+            if chunk_mag.shape[1] > (end - start):
+                chunk_masks = chunk_masks[:, :, :end - start]
+
+            window = np.hanning(chunk_masks.shape[2] * 2)[chunk_masks.shape[2]:]
+
+            chunk_end = min(start + chunk_masks.shape[2], time_frames)
+            chunk_len = chunk_end - start
+            result_masks[:, :, start:chunk_end] += chunk_masks[:, :, :chunk_len] * window[:chunk_len]
+            blend_weights[start:chunk_end] += window[:chunk_len]
+
+            start += chunk_frames - overlap_frames
+            if self.device.type == "cuda":
+                torch.cuda.empty_cache()
+
+        blend_weights[blend_weights == 0] = 1.0
+        result_masks = result_masks / blend_weights[None, None, :]
+
+        return result_masks
+
+    def classify(self, audio_bytes: bytes) -> dict:
+        """Return stem presence classification for this client's assigned stem.
+
+        Returns a dict with keys: stem, present, confidence.
+        If no target stem is configured, all four stems are returned.
+        """
+        import io
+        import soundfile as sf
+        from .utils.audio import normalize_magnitude, stft_mag_phase
+
+        wave, _ = sf.read(io.BytesIO(audio_bytes), dtype="float32", always_2d=False)
+        if wave.ndim > 1:
+            wave = wave.mean(axis=1)
+        # Truncate to 5 s — the GAP bottleneck discards position anyway, so
+        # extra duration just wastes compute and risks OOM on long inputs.
+        max_samples = 5 * self.sr
+        if wave.shape[0] > max_samples:
+            wave = wave[:max_samples]
+
+        mag, _ = stft_mag_phase(wave, n_fft=self.n_fft, hop_length=self.hop_length)
+        log_mag, _ = normalize_magnitude(mag, log_scale=True), None
+        mix_tensor = torch.from_numpy(log_mag[None, None, ...]).to(self.device)
+
+        self.model.eval()
+        device_type = self.device.type if self.device.type == "cpu" else "cuda"
+        use_amp = _env_bool("USE_AMP")
+        autocast_ctx = torch.autocast(device_type=device_type, dtype=torch.float16, enabled=use_amp)
+        with torch.no_grad(), autocast_ctx:
+            _, cls_logits = self.model(mix_tensor)
+
+        probs = torch.sigmoid(cls_logits[0]).cpu().tolist()
+        stems = list(stem_names())
+
+        if self.target_stem_index is not None:
+            idx = self.target_stem_index
+            conf = float(probs[idx])
+            return {"stem": stems[idx], "present": conf >= 0.5, "confidence": conf}
+
+        return {
+            "stems": {s: {"present": probs[i] >= 0.5, "confidence": float(probs[i])} for i, s in enumerate(stems)}
+        }
 
     def _chunk_frames_from_duration(self, duration_seconds: float | int | None) -> int | None:
         if duration_seconds is None:
