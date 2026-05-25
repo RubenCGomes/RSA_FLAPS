@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FLAPS — Federated Acoustic Controller</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="glass-bg"></div>
+    <div class="dashboard-container">
+        <!-- HEADER -->
+        <header class="app-header">
+            <div class="logo-area">
+                <div class="pulse-ring"></div>
+                <h1>FLAPS</h1>
+            </div>
+            
+            <div class="header-controls">
+                <div class="status-summary">
+                    <span class="label">System:</span>
+                    <span id="system-status-indicator" class="status-badge status-offline">Connecting...</span>
+                </div>
+                
+
+            </div>
+        </header>
+
+        <!-- MAIN LAYOUT -->
+        <main class="dashboard-grid">
+            
+            <!-- LEFT PANEL: AUDIO LIBRARY & MASTER PLAYBACK -->
+            <section class="panel library-panel" id="panel-library">
+                <div class="panel-header">
+                    <h2>Audio Control Deck</h2>
+                    <span class="panel-badge">Library</span>
+                </div>
+
+                <!-- Master Control Deck -->
+                <div class="control-card glass-card">
+                    <h3>Master Playback Control</h3>
+                    <p class="section-description">Trigger synchronized playback across all buffered nodes, or stop audio execution.</p>
+                    
+                    <div class="master-playback-actions">
+                        <button id="btn-master-buffer" class="btn btn-secondary btn-glow" disabled>
+                            <svg class="icon" viewBox="0 0 24 24"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM17 13l-5 5-5-5h3V9h4v4h3z"/></svg>
+                            Buffer Selected Track
+                        </button>
+                        <button id="btn-master-play" class="btn btn-primary btn-glow" disabled>
+                            <svg class="icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                            Start Playback
+                        </button>
+                        <button id="btn-master-stop" class="btn btn-danger btn-glow" disabled>
+                            <svg class="icon" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+                            Stop Playback
+                        </button>
+                    </div>
+
+                    <div id="master-status-alert" class="alert-info hidden">
+                        <span id="master-status-text">Ready to buffer.</span>
+                    </div>
+                </div>
+
+                <!-- Audio Upload Widget -->
+                <div class="upload-area glass-card" id="drop-zone">
+                    <input type="file" id="audio-file-input" accept=".wav,.mp3,.flac,.ogg" class="hidden-input">
+                    <label for="audio-file-input" class="upload-label">
+                        <svg class="upload-icon" viewBox="0 0 24 24"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/></svg>
+                        <span class="upload-title">Drag & Drop Audio Mix</span>
+                        <span class="upload-subtitle">WAV, MP3, FLAC, OGG (Max 50MB)</span>
+                    </label>
+                    
+                    <div id="upload-progress-container" class="progress-container hidden">
+                        <div class="progress-bar-wrapper">
+                            <div id="upload-progress-bar" class="progress-bar"></div>
+                        </div>
+                        <span id="upload-progress-text" class="progress-text">Uploading: 0%</span>
+                    </div>
+                </div>
+
+                <!-- Library List -->
+                <div class="library-list-container">
+                    <div class="section-title-row">
+                        <h3>Audio Library</h3>
+                        <button id="btn-refresh-library" class="btn btn-text">Refresh</button>
+                    </div>
+                    <div id="audio-library-list" class="audio-list scrollable">
+                        <div class="empty-state">No audio tracks uploaded yet.</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- MIDDLE PANEL: CLIENT NODES GRID -->
+            <section class="panel nodes-panel" id="panel-nodes">
+                <div class="panel-header">
+                    <h2>FLAPS Client Nodes</h2>
+                    <button id="btn-refresh-nodes" class="btn btn-secondary btn-sm">Refresh Status</button>
+                </div>
+
+                <!-- Add Node Form -->
+                <div class="add-node-bar glass-card">
+                    <form id="add-node-form" class="inline-form">
+                        <input type="url" id="node-url-input" placeholder="http://192.168.1.10:5000" required class="premium-input">
+                        <button type="submit" id="btn-add-node" class="btn btn-primary">Add Client</button>
+                    </form>
+                </div>
+
+                <!-- Nodes Grid -->
+                <div id="nodes-grid" class="nodes-grid-container scrollable">
+                    <div class="empty-state">No client nodes registered. Use the box above to add a client node.</div>
+                </div>
+            </section>
+
+            <!-- RIGHT PANEL: ORCHESTRATION FEED & SYSTEM LOGS -->
+            <section class="panel feed-panel" id="panel-feed">
+                <div class="panel-header">
+                    <h2>Orchestration Feed</h2>
+                    <span class="panel-badge">Terminal</span>
+                </div>
+
+                <!-- Interactive Classification Results -->
+                <div class="class-results-card glass-card hidden" id="classification-results-card">
+                    <div class="card-header-row">
+                        <h3>Stem Classification</h3>
+                        <button id="btn-close-classification" class="btn btn-icon-text">Close</button>
+                    </div>
+                    <div class="results-body">
+                        <div class="results-stat-row">
+                            <span class="stat-label">File:</span>
+                            <span class="stat-value text-glow" id="cls-filename">mix.wav</span>
+                        </div>
+                        <div class="results-stat-row">
+                            <span class="stat-label">Client / Stem:</span>
+                            <span class="stat-value text-glow" id="cls-stem-target">vocals</span>
+                        </div>
+                        <div class="results-large-status">
+                            <span class="cls-result-badge present" id="cls-present-badge">Detected</span>
+                            <span class="cls-result-confidence" id="cls-confidence-val">94% Confidence</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Live Log Feed -->
+                <div class="log-console-container">
+                    <div class="section-title-row">
+                        <h3>Activity Feed</h3>
+                        <button id="btn-clear-logs" class="btn btn-text">Clear</button>
+                    </div>
+                    <div id="system-log-feed" class="log-feed scrollable font-mono">
+                        <div class="log-line log-system">[07:14:33] Dashboard initialized. Awaiting user commands...</div>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <!-- UTILITY MODALS OR TEMPLATES (Optional, can be generated dynamically in JS) -->
+    <script src="/static/app.js"></script>
+</body>
+</html>
