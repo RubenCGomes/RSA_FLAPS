@@ -116,6 +116,9 @@ def get_parameters():
 
 def set_parameters(parameters):
 	global model
+	if not parameters:
+		print("set_parameters: skipping empty parameter list")
+		return
 	APP.set_parameters(parameters)
 	model = APP.model
 	print("Parameters Set!")
