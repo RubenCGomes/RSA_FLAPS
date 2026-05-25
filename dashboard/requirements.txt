@@ -2,3 +2,4 @@ fastapi
 uvicorn
 requests
 python-multipart
+# System dependency (not pip): ffmpeg — required for MP3/FLAC/OGG upload conversion

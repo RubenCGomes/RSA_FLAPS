@@ -29,6 +29,36 @@
             </div>
         </header>
 
+        <!-- KPI SUMMARY ROW -->
+        <div class="kpi-row">
+            <div class="kpi-card" id="kpi-total-nodes">
+                <span class="kpi-val">0</span>
+                <span class="kpi-lbl">Total Nodes</span>
+            </div>
+            <div class="kpi-card" id="kpi-online-nodes">
+                <span class="kpi-val">0</span>
+                <span class="kpi-lbl">Online</span>
+            </div>
+            <div class="kpi-card" id="kpi-playing-nodes">
+                <span class="kpi-val">0</span>
+                <span class="kpi-lbl">Playing</span>
+            </div>
+        </div>
+
+        <!-- TRAINING MONITOR PANEL -->
+        <section class="training-monitor glass-card" id="panel-training">
+            <div class="training-monitor-header">
+                <div class="training-title-group">
+                    <h2>FL Training Monitor</h2>
+                    <span id="training-global-badge" class="status-badge status-offline">Idle</span>
+                </div>
+                <button id="btn-refresh-training" class="btn btn-text">Refresh</button>
+            </div>
+            <div id="training-nodes-row" class="training-nodes-row">
+                <div class="empty-state">No training data yet. Start federated training to see round metrics here.</div>
+            </div>
+        </section>
+
         <!-- MAIN LAYOUT -->
         <main class="dashboard-grid">
             

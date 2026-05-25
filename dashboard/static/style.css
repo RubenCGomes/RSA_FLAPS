@@ -256,6 +256,155 @@ body {
 }
 
 /* ---------------------------------------------------------------------------
+   TRAINING MONITOR PANEL
+   --------------------------------------------------------------------------- */
+.training-monitor {
+    padding: 16px 20px;
+}
+
+.training-monitor-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 14px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    padding-bottom: 12px;
+}
+
+.training-monitor-header h2 {
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.training-title-group {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.training-nodes-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 14px;
+}
+
+.training-node-card {
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 10px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.training-node-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+.training-node-id {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.training-node-url {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-main);
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.training-round-badge {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: 4px;
+    white-space: nowrap;
+    background: rgba(0, 229, 255, 0.06);
+    color: var(--primary);
+    border: 1px solid rgba(0, 229, 255, 0.15);
+}
+
+.training-round-badge.busy {
+    background: rgba(255, 234, 0, 0.08);
+    color: var(--warning);
+    border-color: rgba(255, 234, 0, 0.2);
+    animation: alert-flash 1.5s infinite;
+}
+
+.training-round-badge.unreachable {
+    background: rgba(255, 23, 68, 0.06);
+    color: var(--danger);
+    border-color: rgba(255, 23, 68, 0.15);
+}
+
+.rounds-table-container {
+    max-height: 160px;
+    overflow-y: auto;
+}
+
+.rounds-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.rounds-table th {
+    color: var(--text-muted);
+    text-transform: uppercase;
+    font-size: 9px;
+    letter-spacing: 0.5px;
+    padding: 4px 6px;
+    text-align: left;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    position: sticky;
+    top: 0;
+    background: rgba(13, 17, 26, 0.9);
+}
+
+.rounds-table td {
+    padding: 4px 6px;
+    color: var(--text-main);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.02);
+}
+
+.round-row-fit td { background: rgba(0, 229, 255, 0.015); }
+.round-row-eval td { background: rgba(0, 230, 118, 0.015); }
+
+.phase-badge {
+    font-size: 9px;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 3px;
+    text-transform: uppercase;
+}
+
+.phase-badge.fit {
+    background: rgba(0, 229, 255, 0.1);
+    color: var(--primary);
+}
+
+.phase-badge.eval {
+    background: rgba(0, 230, 118, 0.1);
+    color: var(--success);
+}
+
+.cell-muted { color: var(--text-dark); }
+
+.training-empty {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-align: center;
+    padding: 10px;
+}
+
+/* ---------------------------------------------------------------------------
    KPI QUICK STATS
    --------------------------------------------------------------------------- */
 .kpi-row {
@@ -381,6 +530,18 @@ body {
 .btn-text:hover {
     color: var(--primary-dark);
     text-decoration: underline;
+}
+
+.btn-icon-text {
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: var(--text-muted);
+    font-size: 11px;
+    padding: 4px 10px;
+}
+.btn-icon-text:hover {
+    border-color: var(--danger);
+    color: var(--danger);
 }
 
 .icon {

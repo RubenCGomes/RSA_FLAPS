@@ -62,6 +62,7 @@ document.addEventListener("DOMContentLoaded", () => {
         fetchAudioLibrary();
         fetchNodesList().then(() => {
             refreshNodesStatus();
+            fetchTrainingStatus();
         });
 
         // Setup polling (every 5 seconds)
@@ -85,6 +86,9 @@ document.addEventListener("DOMContentLoaded", () => {
         btnMasterBuffer.addEventListener("click", triggerMasterBuffer);
         btnMasterPlay.addEventListener("click", triggerMasterPlay);
         btnMasterStop.addEventListener("click", triggerMasterStop);
+
+        // Training panel refresh button
+        document.getElementById("btn-refresh-training").addEventListener("click", fetchTrainingStatus);
 
         // Close Classification Results
         btnCloseClassification.addEventListener("click", () => {
@@ -192,7 +196,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function startStatusPolling() {
         if (pollInterval) clearInterval(pollInterval);
-        pollInterval = setInterval(refreshNodesStatus, 5000);
+        pollInterval = setInterval(() => {
+            refreshNodesStatus();
+            fetchTrainingStatus();
+        }, 5000);
     }
 
     // -----------------------------------------------------------------------
@@ -775,6 +782,125 @@ document.addEventListener("DOMContentLoaded", () => {
         } catch (e) {
             addLog(`Failed: ${e.message}`, "error");
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // TRAINING MONITOR
+    // -----------------------------------------------------------------------
+    async function fetchTrainingStatus() {
+        try {
+            const resp = await fetch("/api/training/status");
+            if (!resp.ok) return;
+            const data = await resp.json();
+            renderTrainingPanel(data);
+        } catch (e) {
+            // non-critical — silently skip
+        }
+    }
+
+    function renderTrainingPanel(nodesData) {
+        const container = document.getElementById("training-nodes-row");
+        const globalBadge = document.getElementById("training-global-badge");
+
+        if (!nodesData || nodesData.length === 0) {
+            container.innerHTML = `<div class="empty-state">No client nodes registered.</div>`;
+            return;
+        }
+
+        const anyBusy    = nodesData.some(n => n.ok && n.busy);
+        const anyHistory = nodesData.some(n => n.ok && n.history && n.history.length > 0);
+
+        if (anyBusy) {
+            globalBadge.innerText = "Training";
+            globalBadge.className = "status-badge status-busy";
+        } else if (anyHistory) {
+            globalBadge.innerText = "Completed";
+            globalBadge.className = "status-badge status-online";
+        } else {
+            globalBadge.innerText = "Idle";
+            globalBadge.className = "status-badge status-offline";
+        }
+
+        container.innerHTML = "";
+
+        nodesData.forEach(node => {
+            const card = document.createElement("div");
+            card.className = "training-node-card";
+
+            if (!node.ok) {
+                card.innerHTML = `
+                    <div class="training-node-header">
+                        <div class="training-node-id">
+                            <span class="training-node-url">${node.url.replace("http://", "")}</span>
+                        </div>
+                        <span class="training-round-badge unreachable">Unreachable</span>
+                    </div>`;
+                container.appendChild(card);
+                return;
+            }
+
+            const history = node.history || [];
+            const isBusy  = node.busy;
+            const round   = node.current_round || 0;
+
+            let roundBadgeClass = "training-round-badge";
+            let roundText;
+            if (isBusy) {
+                roundBadgeClass += " busy";
+                roundText = `Round ${round} — Training…`;
+            } else if (round > 0) {
+                roundText = `Round ${round} — Done`;
+            } else {
+                roundText = "No rounds yet";
+            }
+
+            const stemBadge = node.target_stem
+                ? `<span class="node-stem-badge">${node.target_stem}</span>`
+                : "";
+
+            let tableHtml;
+            if (history.length === 0) {
+                tableHtml = `<div class="training-empty">No rounds completed yet.</div>`;
+            } else {
+                const rows = history.map(rec => {
+                    const isFit   = rec.phase === "fit";
+                    const loss    = rec.loss    !== undefined ? rec.loss.toFixed(3)   : "—";
+                    const clsAcc  = rec.cls_accuracy !== undefined ? `${(rec.cls_accuracy * 100).toFixed(0)}%` : "—";
+                    const siSdr   = !isFit && rec.mean_si_sdr_improvement !== undefined
+                        ? `${rec.mean_si_sdr_improvement.toFixed(1)} dB`
+                        : `<span class="cell-muted">—</span>`;
+                    const dur = rec.duration_s !== undefined ? `${rec.duration_s}s` : "—";
+                    return `<tr class="round-row-${rec.phase}">
+                        <td>${rec.round}</td>
+                        <td><span class="phase-badge ${rec.phase}">${rec.phase}</span></td>
+                        <td>${loss}</td>
+                        <td>${siSdr}</td>
+                        <td>${clsAcc}</td>
+                        <td class="cell-muted">${dur}</td>
+                    </tr>`;
+                }).join("");
+
+                tableHtml = `<table class="rounds-table">
+                    <thead><tr>
+                        <th>Rd</th><th>Phase</th><th>Loss</th>
+                        <th>SI-SDR↑</th><th>CLS Acc</th><th>Time</th>
+                    </tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>`;
+            }
+
+            card.innerHTML = `
+                <div class="training-node-header">
+                    <div class="training-node-id">
+                        <span class="training-node-url">${node.url.replace("http://", "")}</span>
+                        ${stemBadge}
+                    </div>
+                    <span class="${roundBadgeClass}">${roundText}</span>
+                </div>
+                <div class="rounds-table-container scrollable">${tableHtml}</div>`;
+
+            container.appendChild(card);
+        });
     }
 
     // -----------------------------------------------------------------------

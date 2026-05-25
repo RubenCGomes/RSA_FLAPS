@@ -199,6 +199,12 @@ async def stop_playback() -> dict:
     return {"stopped": True}
 
 
+@router.get("/training/status")
+async def training_status() -> dict:
+    """Return FL training history accumulated since startup."""
+    return APP.get_training_status()
+
+
 @router.post("/external/classify")
 async def classify_audio(file: UploadFile) -> dict:
     """Classify whether this client's assigned stem is present in the uploaded audio.

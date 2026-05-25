@@ -26,11 +26,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Paths
+# Paths — DATA_DIR can be overridden via env var for containerised deployments
 BASE_DIR = Path(__file__).resolve().parent
-UPLOADS_DIR = BASE_DIR / "uploads"
+DATA_DIR = Path(os.environ.get("DATA_DIR", str(BASE_DIR)))
+UPLOADS_DIR = DATA_DIR / "uploads"
 STATIC_DIR = BASE_DIR / "static"
-NODES_FILE = BASE_DIR / "nodes.json"
+NODES_FILE = DATA_DIR / "nodes.json"
 
 # Ensure directories exist
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
@@ -360,6 +361,29 @@ def classify_audio(req: ClassifyRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Classification request failed: {str(e)}")
 
+
+
+# --- Training Status ---
+def fetch_training_status_from_node(url: str) -> dict:
+    try:
+        resp = requests.get(f"{url}/training/status", timeout=3)
+        if resp.status_code == 200:
+            data = resp.json()
+            data["url"] = url
+            data["ok"] = True
+            return data
+        return {"url": url, "ok": False, "error": f"HTTP {resp.status_code}"}
+    except requests.exceptions.RequestException as e:
+        return {"url": url, "ok": False, "error": str(e)}
+
+@app.get("/api/training/status")
+def get_training_status():
+    nodes = load_nodes()
+    if not nodes:
+        return []
+    with ThreadPoolExecutor(max_workers=len(nodes)) as executor:
+        results = list(executor.map(fetch_training_status_from_node, nodes))
+    return results
 
 
 # --- Static Frontend Serving ---

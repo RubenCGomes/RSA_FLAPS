@@ -1,6 +1,6 @@
 # Jetson 1 — FL Aggregator
 #
-# Runs: flower-server
+# Runs: flower-server + dashboard
 #
 # Startup order (IMPORTANT):
 #   1. Start both client Jetsons first and wait for their ml-apps to be healthy.
@@ -8,11 +8,14 @@
 #      from CLIENT_1_IP:5000 on startup, so that node must be reachable.
 #
 # Required env vars — copy .env.jetson.example to .env and fill in:
-#   AGGREGATOR_IP   this machine's mesh IP (informational, used for docs)
-#   CLIENT_1_IP     Jetson 2 mesh IP — flower-server pulls initial params from here
+#   AGGREGATOR_IP        this machine's mesh IP (informational, used for docs)
+#   CLIENT_1_IP          Jetson 2 mesh IP — flower-server pulls initial params from here
+#   DASHBOARD_DATA_PATH  host path for persistent dashboard uploads & nodes config
 #
 # Usage:
 #   docker compose -f docker-compose.jetson-aggregator.yaml up --build
+#
+# Dashboard available at http://<AGGREGATOR_IP>:8000
 
 services:
   flower-server:
@@ -40,3 +43,17 @@ services:
       timeout: 5s
       retries: 15
       start_period: 60s
+
+  dashboard:
+    build:
+      context: ../../../../dashboard
+      dockerfile: Dockerfile
+    image: flaps-dashboard
+    container_name: flaps-dashboard
+    ports:
+      - "8000:8000"
+    environment:
+      DATA_DIR: /app/data
+    volumes:
+      - ${DASHBOARD_DATA_PATH:-./dashboard-data}:/app/data
+    restart: unless-stopped

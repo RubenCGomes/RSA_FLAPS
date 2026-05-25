@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import threading
+import time
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -83,6 +84,8 @@ class MLApp:
         self.run_path.mkdir(parents=True, exist_ok=True)
         self.lock = threading.Lock()
         self._cache: Dict[str, MusdbSeparationDataset] = {}
+        self._training_history: list[dict] = []
+        self._round: int = 0
 
     def _build_model(self, model_name: str):
         """Build model based on model_name."""
@@ -127,6 +130,9 @@ class MLApp:
             return self._fit(parameters, config)
 
     def _fit(self, parameters: List[np.ndarray] | None, config: dict | None = None):
+        _fit_start = time.monotonic()
+        self._round += 1
+        _current_round = self._round
         config = {} if config is None else dict(config)
         epochs = int(config.get("epochs", 1))
         batch_size = int(config.get("batch_size", 1))
@@ -305,6 +311,16 @@ class MLApp:
             "learning_rate": float(self.optimizer.param_groups[0]["lr"]),
             "target_stem": self.target_stem or "all",
         }
+        self._training_history.append({
+            "round": _current_round,
+            "phase": "fit",
+            "timestamp": time.time(),
+            "duration_s": round(time.monotonic() - _fit_start, 1),
+            "loss": metrics["loss"],
+            "cls_loss": metrics["cls_loss"],
+            "cls_accuracy": metrics["cls_accuracy"],
+            "n_examples": metrics["n_examples"],
+        })
         self._save_checkpoint("latest_train.pt")
         return self.get_parameters(), len(dataset), metrics
 
@@ -313,6 +329,8 @@ class MLApp:
             return self._evaluate(parameters, *args, **kwargs)
 
     def _evaluate(self, parameters: List[np.ndarray] | None, *args, **kwargs) -> dict:
+        _eval_start = time.monotonic()
+        _current_round = self._round
         config_arg = args[0] if args else kwargs.get("config")
         config = {} if config_arg is None else dict(config_arg)
         split = config.get("split", "val")
@@ -439,6 +457,18 @@ class MLApp:
             "n_examples": len(dataset),
             "target_stem": self.target_stem or "all",
         }
+        self._training_history.append({
+            "round": _current_round,
+            "phase": "evaluate",
+            "timestamp": time.time(),
+            "duration_s": round(time.monotonic() - _eval_start, 1),
+            "loss": metrics["loss"],
+            "mean_si_sdr": metrics["mean_si_sdr"],
+            "mean_si_sdr_improvement": metrics["mean_si_sdr_improvement"],
+            "cls_loss": metrics["cls_loss"],
+            "cls_accuracy": metrics["cls_accuracy"],
+            "n_examples": metrics["n_examples"],
+        })
         if self.device.type == "cuda":
             torch.cuda.empty_cache()
         return metrics
@@ -498,6 +528,15 @@ class MLApp:
         if self.device.type == "cuda":
             torch.cuda.empty_cache()
         return outputs
+
+    def get_training_status(self) -> dict:
+        return {
+            "busy": self.lock.locked(),
+            "current_round": self._round,
+            "target_stem": self.target_stem,
+            "model_name": self.model_name,
+            "history": list(self._training_history),
+        }
 
     def in_usage(self, value: int | None = None):
         if value is None:
