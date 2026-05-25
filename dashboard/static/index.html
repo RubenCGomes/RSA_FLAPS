@@ -121,6 +121,32 @@
                         <div class="empty-state">No audio tracks uploaded yet.</div>
                     </div>
                 </div>
+
+                <!-- Model Library -->
+                <div class="library-list-container model-library-section">
+                    <div class="section-title-row">
+                        <h3>Model Library</h3>
+                        <label for="model-file-input" class="btn btn-text model-upload-label">Upload .pt</label>
+                        <input type="file" id="model-file-input" accept=".pt" class="hidden-input">
+                    </div>
+                    <p class="section-description">Upload a trained checkpoint and push it to nodes to override their current model weights.</p>
+                    <div id="model-library-list" class="audio-list scrollable">
+                        <div class="empty-state">No models uploaded yet.</div>
+                    </div>
+                </div>
+
+                <!-- Model Push Panel (shown when pushing a model) -->
+                <div class="glass-card model-push-panel hidden" id="model-push-panel">
+                    <div class="section-title-row">
+                        <h3>Push: <span id="model-push-filename" class="text-glow"></span></h3>
+                        <button id="btn-model-push-close" class="btn btn-text">Cancel</button>
+                    </div>
+                    <p class="section-description">Select target nodes:</p>
+                    <div id="model-push-node-list" class="model-push-node-list"></div>
+                    <button id="btn-model-push-confirm" class="btn btn-primary btn-glow" style="width:100%;margin-top:8px;">
+                        Push to Selected Nodes
+                    </button>
+                </div>
             </section>
 
             <!-- MIDDLE PANEL: CLIENT NODES GRID -->

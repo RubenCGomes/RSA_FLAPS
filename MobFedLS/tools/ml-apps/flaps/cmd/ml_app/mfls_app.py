@@ -113,6 +113,14 @@ class MLApp:
             updated[key] = tensor
         self.model.load_state_dict(updated)
 
+    def load_checkpoint_from_bytes(self, data: bytes) -> None:
+        import io
+        buf = io.BytesIO(data)
+        state_dict = torch.load(buf, map_location=self.device, weights_only=True)
+        if isinstance(state_dict, dict) and "model_state_dict" in state_dict:
+            state_dict = state_dict["model_state_dict"]
+        self.model.load_state_dict(state_dict)
+
     def get_data(self, selection: dict | None = None) -> dict:
         selection = selection or {}
         train_dataset = self._dataset("train", max_segments=selection.get("max_segments", self.max_train_segments))

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import os
 import subprocess
 import tempfile
@@ -9,6 +10,7 @@ import zipfile
 from io import BytesIO
 from pathlib import Path
 
+import torch
 from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
@@ -232,6 +234,39 @@ async def stream_buffered_stem() -> StreamingResponse:
 async def training_status() -> dict:
     """Return FL training history accumulated since startup."""
     return APP.get_training_status()
+
+
+@router.post("/external/model/load")
+async def load_model_checkpoint(file: UploadFile) -> dict:
+    """Replace the running model weights with an uploaded .pt checkpoint.
+
+    Returns 503 while an FL round is in progress.
+    """
+    if APP.lock.locked():
+        raise HTTPException(status_code=503, detail="ML app is busy — FL round in progress")
+    data = await file.read()
+    try:
+        APP.load_checkpoint_from_bytes(data)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to load checkpoint: {e}")
+    return {"loaded": True, "model_name": APP.model_name}
+
+
+@router.get("/external/model/download")
+async def download_model_checkpoint() -> StreamingResponse:
+    """Stream the current model state dict as a .pt file."""
+    buf = io.BytesIO()
+    torch.save(APP.model.state_dict(), buf)
+    buf.seek(0)
+    size = buf.getbuffer().nbytes
+    return StreamingResponse(
+        buf,
+        media_type="application/octet-stream",
+        headers={
+            "Content-Length": str(size),
+            "Content-Disposition": f'attachment; filename="{APP.model_name}.pt"',
+        },
+    )
 
 
 @router.post("/external/classify")

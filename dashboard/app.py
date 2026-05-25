@@ -36,6 +36,8 @@ NODES_FILE = DATA_DIR / "nodes.json"
 # Ensure directories exist
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
+MODELS_DIR = DATA_DIR / "models"
+MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
 # ---------------------------------------------------------------------------
 # Data Models
@@ -53,6 +55,10 @@ class PlaybackRequest(BaseModel):
 class ClassifyRequest(BaseModel):
     filename: str
     node_url: str
+
+class ModelPushRequest(BaseModel):
+    filename: str
+    nodes: List[str]
 
 # ---------------------------------------------------------------------------
 # Persistent Storage Helpers
@@ -389,6 +395,87 @@ def stream_node_audio(node_url: str):
     except requests.exceptions.Timeout:
         raise HTTPException(status_code=504, detail="Node timed out")
 
+
+# --- Model Library ---
+@app.get("/api/models")
+def list_models():
+    files = []
+    for f in MODELS_DIR.iterdir():
+        if f.is_file() and f.suffix.lower() == ".pt":
+            stats = f.stat()
+            files.append({
+                "filename": f.name,
+                "size_bytes": stats.st_size,
+                "size_mb": round(stats.st_size / (1024 * 1024), 2),
+                "created_at": stats.st_mtime
+            })
+    files.sort(key=lambda x: x["created_at"], reverse=True)
+    return files
+
+@app.post("/api/models/upload")
+async def upload_model(file: UploadFile = File(...)):
+    if not file.filename or not file.filename.endswith(".pt"):
+        raise HTTPException(status_code=400, detail="Only .pt checkpoint files are supported")
+    file_path = MODELS_DIR / file.filename
+    contents = await file.read()
+    with open(file_path, "wb") as f:
+        f.write(contents)
+    return {"filename": file.filename, "message": "Model uploaded successfully"}
+
+@app.delete("/api/models/{filename}")
+def delete_model(filename: str):
+    file_path = MODELS_DIR / filename
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Model file not found")
+    file_path.unlink()
+    return {"message": "Model deleted successfully"}
+
+def _push_model_to_node(node_url: str, file_path: Path, filename: str) -> dict:
+    try:
+        with open(file_path, "rb") as f:
+            resp = requests.post(
+                f"{node_url}/external/model/load",
+                files={"file": (filename, f, "application/octet-stream")},
+                timeout=30,
+            )
+            if resp.status_code == 200:
+                return {"url": node_url, "success": True, "data": resp.json()}
+            return {"url": node_url, "success": False, "error": f"HTTP {resp.status_code}: {resp.text}"}
+    except Exception as e:
+        return {"url": node_url, "success": False, "error": str(e)}
+
+@app.post("/api/models/push")
+def push_model(req: ModelPushRequest):
+    file_path = MODELS_DIR / req.filename
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Model file not found in library")
+    if not req.nodes:
+        raise HTTPException(status_code=400, detail="No nodes selected")
+    results = {}
+    with ThreadPoolExecutor(max_workers=len(req.nodes)) as executor:
+        futures = {executor.submit(_push_model_to_node, url, file_path, req.filename): url for url in req.nodes}
+        for fut in futures:
+            url = futures[fut]
+            try:
+                results[url] = fut.result()
+            except Exception as e:
+                results[url] = {"url": url, "success": False, "error": str(e)}
+    return {"message": "Model push completed", "results": results}
+
+@app.get("/api/models/download")
+def download_model_from_node(node_url: str):
+    """Proxy the current model checkpoint from a node as a .pt download."""
+    try:
+        resp = requests.get(f"{node_url}/external/model/download", stream=True, timeout=15)
+        if resp.status_code == 200:
+            fname = resp.headers.get("Content-Disposition", "").split('filename="')[-1].rstrip('"') or "model.pt"
+            headers = {"Content-Disposition": f'attachment; filename="{fname}"'}
+            if "Content-Length" in resp.headers:
+                headers["Content-Length"] = resp.headers["Content-Length"]
+            return StreamingResponse(resp.iter_content(chunk_size=65536), media_type="application/octet-stream", headers=headers)
+        raise HTTPException(status_code=resp.status_code, detail="Node error")
+    except requests.exceptions.ConnectionError:
+        raise HTTPException(status_code=503, detail="Node unreachable")
 
 # --- Training Status ---
 def fetch_training_status_from_node(url: str) -> dict:

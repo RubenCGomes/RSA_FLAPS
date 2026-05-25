@@ -61,6 +61,7 @@ document.addEventListener("DOMContentLoaded", () => {
         
         // Load initial data
         fetchAudioLibrary();
+        fetchModelLibrary();
         fetchNodesList().then(() => {
             refreshNodesStatus();
             fetchTrainingStatus();
@@ -90,6 +91,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
         // Training panel refresh button
         document.getElementById("btn-refresh-training").addEventListener("click", fetchTrainingStatus);
+
+        // Model library handlers
+        setupModelLibraryHandlers();
 
         // Close Classification Results
         btnCloseClassification.addEventListener("click", () => {
@@ -1072,6 +1076,153 @@ document.addEventListener("DOMContentLoaded", () => {
         } finally {
             toggleNodeCardLoader(url, false);
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // MODEL LIBRARY
+    // -----------------------------------------------------------------------
+    let _modelPushTarget = null;
+
+    async function fetchModelLibrary() {
+        try {
+            const resp = await fetch("/api/models");
+            if (!resp.ok) throw new Error("Failed to query model library");
+            renderModelLibrary(await resp.json());
+        } catch (e) {
+            addLog(`Error loading model library: ${e.message}`, "error");
+        }
+    }
+
+    function renderModelLibrary(files) {
+        const list = document.getElementById("model-library-list");
+        list.innerHTML = "";
+        if (files.length === 0) {
+            list.innerHTML = `<div class="empty-state">No models uploaded yet.</div>`;
+            return;
+        }
+        files.forEach(file => {
+            const item = document.createElement("div");
+            item.className = "audio-item model-item";
+            item.innerHTML = `
+                <div class="audio-meta">
+                    <span class="audio-name" title="${file.filename}">${file.filename}</span>
+                    <span class="audio-size">${file.size_mb} MB</span>
+                </div>
+                <div class="audio-actions">
+                    <button class="btn-select-track btn-model-push" data-name="${file.filename}">Push</button>
+                    <button class="btn-icon btn-delete-model" data-name="${file.filename}" title="Delete model">
+                        <svg style="width:14px;height:14px;" viewBox="0 0 24 24">
+                            <path fill="currentColor" d="M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z"/>
+                        </svg>
+                    </button>
+                </div>`;
+            list.appendChild(item);
+        });
+
+        document.querySelectorAll(".btn-model-push").forEach(btn => {
+            btn.addEventListener("click", () => showModelPushPanel(btn.dataset.name));
+        });
+        document.querySelectorAll(".btn-delete-model").forEach(btn => {
+            btn.addEventListener("click", () => deleteModel(btn.dataset.name));
+        });
+    }
+
+    function showModelPushPanel(filename) {
+        _modelPushTarget = filename;
+        document.getElementById("model-push-filename").innerText = filename;
+
+        const nodeListEl = document.getElementById("model-push-node-list");
+        nodeListEl.innerHTML = "";
+        const online = nodesStatusList.filter(n => n.online);
+        if (online.length === 0) {
+            nodeListEl.innerHTML = `<div class="empty-state">No online nodes available.</div>`;
+        } else {
+            online.forEach(n => {
+                const row = document.createElement("label");
+                row.className = "model-node-select-row";
+                row.innerHTML = `
+                    <input type="checkbox" class="model-node-check" value="${n.url}" checked>
+                    <span class="model-node-url">${n.url.replace("http://", "")}</span>
+                    ${n.target_stem ? `<span class="node-stem-badge">${n.target_stem}</span>` : ""}`;
+                nodeListEl.appendChild(row);
+            });
+        }
+
+        document.getElementById("model-push-panel").classList.remove("hidden");
+    }
+
+    async function deleteModel(filename) {
+        if (!confirm(`Delete model "${filename}"?`)) return;
+        try {
+            const resp = await fetch(`/api/models/${encodeURIComponent(filename)}`, { method: "DELETE" });
+            if (!resp.ok) throw new Error((await resp.json()).detail || "Delete failed");
+            addLog(`Deleted model "${filename}"`, "info");
+            fetchModelLibrary();
+        } catch (e) {
+            addLog(`Failed to delete model: ${e.message}`, "error");
+        }
+    }
+
+    async function pushModel() {
+        const checks = document.querySelectorAll(".model-node-check:checked");
+        const nodes = Array.from(checks).map(c => c.value);
+        if (!_modelPushTarget || nodes.length === 0) return;
+
+        const btn = document.getElementById("btn-model-push-confirm");
+        btn.disabled = true;
+        btn.innerText = "Pushing…";
+        addLog(`Pushing model "${_modelPushTarget}" to ${nodes.length} node(s)…`, "info");
+
+        try {
+            const resp = await fetch("/api/models/push", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ filename: _modelPushTarget, nodes })
+            });
+            const result = await resp.json();
+            for (const url in result.results) {
+                const r = result.results[url];
+                if (r.success) {
+                    addLog(`  ✓ ${url} — model loaded`, "success");
+                } else {
+                    addLog(`  ✗ ${url} — ${r.error}`, "error");
+                }
+            }
+            document.getElementById("model-push-panel").classList.add("hidden");
+            _modelPushTarget = null;
+        } catch (e) {
+            addLog(`Push failed: ${e.message}`, "error");
+        } finally {
+            btn.disabled = false;
+            btn.innerText = "Push to Selected Nodes";
+        }
+    }
+
+    function setupModelLibraryHandlers() {
+        const modelInput = document.getElementById("model-file-input");
+        modelInput.addEventListener("change", async () => {
+            const file = modelInput.files[0];
+            if (!file) return;
+            addLog(`Uploading model: ${file.name}…`);
+            const fd = new FormData();
+            fd.append("file", file);
+            try {
+                const resp = await fetch("/api/models/upload", { method: "POST", body: fd });
+                if (!resp.ok) throw new Error((await resp.json()).detail || "Upload failed");
+                addLog(`Model "${file.name}" uploaded successfully`, "success");
+                fetchModelLibrary();
+            } catch (e) {
+                addLog(`Model upload failed: ${e.message}`, "error");
+            }
+            modelInput.value = "";
+        });
+
+        document.getElementById("btn-model-push-close").addEventListener("click", () => {
+            document.getElementById("model-push-panel").classList.add("hidden");
+            _modelPushTarget = null;
+        });
+
+        document.getElementById("btn-model-push-confirm").addEventListener("click", pushModel);
     }
 
     // Run initialization

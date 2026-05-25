@@ -1470,3 +1470,63 @@ body {
     25% { transform: translateX(-4px); }
     75% { transform: translateX(4px); }
 }
+
+/* ---------------------------------------------------------------------------
+   MODEL LIBRARY
+   --------------------------------------------------------------------------- */
+.model-library-section {
+    margin-top: 16px;
+    border-top: 1px solid var(--border-color);
+    padding-top: 14px;
+}
+
+.model-upload-label {
+    cursor: pointer;
+}
+
+.model-item {
+    border-left: 2px solid var(--secondary);
+}
+
+.model-push-panel {
+    margin-top: 12px;
+    padding: 14px;
+}
+
+.model-push-node-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 8px 0;
+    max-height: 160px;
+    overflow-y: auto;
+}
+
+.model-node-select-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: border-color 0.15s;
+    font-size: 12px;
+}
+
+.model-node-select-row:hover {
+    border-color: var(--primary);
+}
+
+.model-node-select-row input[type="checkbox"] {
+    accent-color: var(--primary);
+    width: 14px;
+    height: 14px;
+}
+
+.model-node-url {
+    flex: 1;
+    font-family: var(--font-mono);
+    color: var(--text-main);
+    font-size: 11px;
+}
