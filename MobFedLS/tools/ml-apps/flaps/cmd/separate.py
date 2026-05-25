@@ -199,6 +199,35 @@ async def stop_playback() -> dict:
     return {"stopped": True}
 
 
+@router.get("/external/separate/stream")
+async def stream_buffered_stem() -> StreamingResponse:
+    """Stream the currently buffered stem as a WAV file to the caller.
+
+    Used by the dashboard to play separated audio in the browser.
+    Returns 404 if no stem has been buffered yet.
+    """
+    with _state_lock:
+        path = _buffered_stem_path
+        name = _buffered_stem_name or "stem"
+    if not path or not Path(path).exists():
+        raise HTTPException(status_code=404, detail="No buffered audio — call /external/separate/buffer first")
+    file_size = Path(path).stat().st_size
+
+    def _iter_file():
+        with open(path, "rb") as f:
+            while chunk := f.read(65536):
+                yield chunk
+
+    return StreamingResponse(
+        _iter_file(),
+        media_type="audio/wav",
+        headers={
+            "Content-Length": str(file_size),
+            "Content-Disposition": f'inline; filename="{name}.wav"',
+        },
+    )
+
+
 @router.get("/training/status")
 async def training_status() -> dict:
     """Return FL training history accumulated since startup."""

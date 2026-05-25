@@ -51,6 +51,7 @@ document.addEventListener("DOMContentLoaded", () => {
     let nodesStatusList = [];      // array of status objects from server
     let isPolling = false;
     let pollInterval = null;
+    let _audioState = {};          // persists browser audio state across grid re-renders
 
     // -----------------------------------------------------------------------
     // INITIALIZATION & EVENT LISTENERS
@@ -212,8 +213,9 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function updateNodesGrid() {
+        _saveAudioState();
         nodesGrid.innerHTML = "";
-        
+
         if (nodesStatusList.length === 0) {
             nodesGrid.innerHTML = `<div class="empty-state">No client nodes registered or responding.</div>`;
             return;
@@ -225,12 +227,15 @@ document.addEventListener("DOMContentLoaded", () => {
             const isBusy = node.busy;
             const isPlaying = node.playing;
             const hasBuffer = node.buffered;
-            
+            const safeId = btoa(node.url).replace(/=/g, "");
+
             let statusClass = "offline";
             let statusText = "Offline";
             if (isOnline) {
-                statusClass = isBusy ? "busy" : "online";
-                statusText = isBusy ? "Busy (FL)" : "Online";
+                if (isBusy)         { statusClass = "busy";    statusText = "Training"; }
+                else if (isPlaying) { statusClass = "playing"; statusText = `Playing — ${node.buffered_stem || ""}`; }
+                else if (hasBuffer) { statusClass = "online";  statusText = `Ready — ${node.buffered_stem || ""}`; }
+                else                { statusClass = "online";  statusText = "Online — Idle"; }
             }
 
             card.className = `node-card ${statusClass}`;
@@ -304,11 +309,34 @@ document.addEventListener("DOMContentLoaded", () => {
                 </button>
             `;
 
+            const encUrl = encodeURIComponent(node.url);
+            const cardAudio = isOnline && hasBuffer ? `
+                <div class="node-audio-player">
+                    <audio class="node-audio-elem" id="audio-elem-${safeId}"
+                           data-url="${node.url}" data-sid="${safeId}" preload="none">
+                        <source src="/api/audio/stream?node_url=${encUrl}" type="audio/wav">
+                    </audio>
+                    <div class="audio-controls-bar">
+                        <button class="btn btn-sm btn-browser-play" id="btn-play-${safeId}" data-sid="${safeId}">
+                            <svg class="icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                            Listen
+                        </button>
+                        <span class="audio-stem-chip">${node.buffered_stem || "stem"}</span>
+                        <div class="audio-volume-group">
+                            <button class="btn-mute" id="btn-mute-${safeId}" data-sid="${safeId}">🔊</button>
+                            <input type="range" class="volume-slider" id="vol-${safeId}"
+                                   data-sid="${safeId}" min="0" max="100" value="80">
+                        </div>
+                    </div>
+                </div>
+            ` : '';
+
             card.innerHTML = `
                 ${deleteBtn}
                 ${cardHeader}
                 ${cardMeta}
                 ${cardStates}
+                ${cardAudio}
                 ${cardActions}
                 <!-- Loader screen -->
                 <div class="node-loader-overlay hidden" id="loader-${btoa(node.url).replace(/=/g, "")}">
@@ -333,6 +361,19 @@ document.addEventListener("DOMContentLoaded", () => {
         document.querySelectorAll(".node-card-delete").forEach(btn => {
             btn.addEventListener("click", () => removeNode(btn.dataset.url));
         });
+
+        // Browser audio player listeners
+        document.querySelectorAll(".btn-browser-play").forEach(btn => {
+            btn.addEventListener("click", () => toggleBrowserPlayback(btn.dataset.sid));
+        });
+        document.querySelectorAll(".btn-mute").forEach(btn => {
+            btn.addEventListener("click", () => toggleMute(btn.dataset.sid));
+        });
+        document.querySelectorAll(".volume-slider").forEach(slider => {
+            slider.addEventListener("input", () => setVolume(slider.dataset.sid, slider.value));
+        });
+
+        _restoreAudioState();
     }
 
     // Show/Hide loader overlay on node cards during async events (separate/buffer)
@@ -782,6 +823,80 @@ document.addEventListener("DOMContentLoaded", () => {
         } catch (e) {
             addLog(`Failed: ${e.message}`, "error");
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // BROWSER AUDIO PLAYER
+    // -----------------------------------------------------------------------
+    function _saveAudioState() {
+        document.querySelectorAll(".node-audio-elem").forEach(audio => {
+            _audioState[audio.dataset.url] = {
+                playing: !audio.paused,
+                currentTime: audio.currentTime,
+                volume: audio.volume,
+                muted: audio.muted,
+            };
+        });
+    }
+
+    function _restoreAudioState() {
+        document.querySelectorAll(".node-audio-elem").forEach(audio => {
+            const s = _audioState[audio.dataset.url];
+            if (!s) return;
+            const sid = audio.dataset.sid;
+            audio.volume = s.volume;
+            audio.muted = s.muted;
+            const volSlider = document.getElementById(`vol-${sid}`);
+            if (volSlider) volSlider.value = Math.round(s.volume * 100);
+            const muteBtn = document.getElementById(`btn-mute-${sid}`);
+            if (muteBtn) muteBtn.innerText = s.muted ? "🔇" : "🔊";
+            if (s.playing) {
+                const pos = s.currentTime;
+                audio.play().then(() => {
+                    audio.currentTime = pos;
+                    const playBtn = document.getElementById(`btn-play-${sid}`);
+                    if (playBtn) {
+                        playBtn.innerHTML = `<svg class="icon" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg> Pause`;
+                        playBtn.classList.add("active");
+                    }
+                }).catch(() => {});
+            }
+        });
+    }
+
+    function toggleBrowserPlayback(sid) {
+        const audio = document.getElementById(`audio-elem-${sid}`);
+        const btn   = document.getElementById(`btn-play-${sid}`);
+        if (!audio || !btn) return;
+        if (audio.paused) {
+            audio.play()
+                .then(() => {
+                    btn.innerHTML = `<svg class="icon" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg> Pause`;
+                    btn.classList.add("active");
+                    addLog(`Browser playback started for ${audio.dataset.url.replace("http://", "")}`, "success");
+                })
+                .catch(e => addLog(`Browser playback error: ${e.message}`, "error"));
+        } else {
+            audio.pause();
+            btn.innerHTML = `<svg class="icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg> Listen`;
+            btn.classList.remove("active");
+        }
+    }
+
+    function toggleMute(sid) {
+        const audio = document.getElementById(`audio-elem-${sid}`);
+        const btn   = document.getElementById(`btn-mute-${sid}`);
+        if (!audio || !btn) return;
+        audio.muted = !audio.muted;
+        btn.innerText = audio.muted ? "🔇" : "🔊";
+    }
+
+    function setVolume(sid, value) {
+        const audio = document.getElementById(`audio-elem-${sid}`);
+        if (!audio) return;
+        audio.volume = value / 100;
+        const muteBtn = document.getElementById(`btn-mute-${sid}`);
+        if (muteBtn) muteBtn.innerText = (Number(value) === 0 || audio.muted) ? "🔇" : "🔊";
     }
 
     // -----------------------------------------------------------------------

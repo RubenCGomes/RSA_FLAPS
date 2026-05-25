@@ -363,6 +363,33 @@ def classify_audio(req: ClassifyRequest):
 
 
 
+# --- Browser Audio Streaming ---
+@app.get("/api/audio/stream")
+def stream_node_audio(node_url: str):
+    """Proxy the buffered stem WAV from a node to the browser for in-browser playback."""
+    try:
+        upstream = requests.get(f"{node_url}/external/separate/stream", stream=True, timeout=10)
+        if upstream.status_code == 404:
+            raise HTTPException(status_code=404, detail="No buffered audio on this node")
+        if upstream.status_code != 200:
+            raise HTTPException(status_code=upstream.status_code, detail="Node error")
+
+        def _iter_chunks():
+            for chunk in upstream.iter_content(chunk_size=65536):
+                if chunk:
+                    yield chunk
+
+        headers = {}
+        if "Content-Length" in upstream.headers:
+            headers["Content-Length"] = upstream.headers["Content-Length"]
+
+        return StreamingResponse(_iter_chunks(), media_type="audio/wav", headers=headers)
+    except requests.exceptions.ConnectionError:
+        raise HTTPException(status_code=503, detail="Node unreachable")
+    except requests.exceptions.Timeout:
+        raise HTTPException(status_code=504, detail="Node timed out")
+
+
 # --- Training Status ---
 def fetch_training_status_from_node(url: str) -> dict:
     try:
