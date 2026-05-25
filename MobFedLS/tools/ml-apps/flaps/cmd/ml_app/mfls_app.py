@@ -152,7 +152,7 @@ class MLApp:
             raise ValueError("train_chunk_overlap must be in [0.0, 1.0).")
         train_chunk_frames = self._chunk_frames_from_duration(train_chunk_duration)
         max_segments = config.get("max_segments", self.max_train_segments)
-        if parameters is not None:
+        if parameters is not None and len(parameters) > 0:
             self.set_parameters(parameters)
 
         self._configure_scheduler(config, learning_rate)
@@ -342,7 +342,7 @@ class MLApp:
         loss_consistency_weight = float(config.get("loss_consistency_weight", 0.05))
         loss_kl_weight = float(config.get("loss_kl_weight", 0.05))
         loss_sisdr_weight = float(config.get("loss_sisdr_weight", 0.20))
-        if parameters is not None:
+        if parameters is not None and len(parameters) > 0:
             self.set_parameters(parameters)
 
         dataset = self._dataset(split, max_segments=max_segments)
