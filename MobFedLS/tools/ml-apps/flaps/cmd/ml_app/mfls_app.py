@@ -119,7 +119,34 @@ class MLApp:
         state_dict = torch.load(buf, map_location=self.device, weights_only=True)
         if isinstance(state_dict, dict) and "model_state_dict" in state_dict:
             state_dict = state_dict["model_state_dict"]
-        self.model.load_state_dict(state_dict)
+
+        # Infer base_filters from checkpoint so we can handle mismatches gracefully
+        ckpt_base_filters = self.base_filters
+        if "stem.conv1.weight" in state_dict:
+            ckpt_base_filters = state_dict["stem.conv1.weight"].shape[0]
+
+        if ckpt_base_filters != self.base_filters:
+            logger.info(
+                f"Checkpoint base_filters={ckpt_base_filters} differs from running "
+                f"model base_filters={self.base_filters} — rebuilding model to match checkpoint."
+            )
+            if self.model_name == "unet_small":
+                self.model = UNetSmall(
+                    in_channels=1, out_channels=4, base_filters=ckpt_base_filters
+                ).to(self.device)
+            elif self.model_name == "unet_large":
+                self.model = UNetLarge(
+                    in_channels=1, out_channels=4, base_filters=max(24, ckpt_base_filters)
+                ).to(self.device)
+            self.base_filters = ckpt_base_filters
+
+        # strict=False: missing keys (e.g. cls_head from pre-dual-head checkpoints)
+        # keep their random init; unexpected keys are silently dropped.
+        result = self.model.load_state_dict(state_dict, strict=False)
+        if result.missing_keys:
+            logger.warning(f"Checkpoint missing keys (kept at random init): {result.missing_keys}")
+        if result.unexpected_keys:
+            logger.warning(f"Checkpoint unexpected keys (ignored): {result.unexpected_keys}")
 
     def get_data(self, selection: dict | None = None) -> dict:
         selection = selection or {}
