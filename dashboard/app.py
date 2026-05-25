@@ -59,7 +59,7 @@ class ClassifyRequest(BaseModel):
 # ---------------------------------------------------------------------------
 def load_nodes() -> List[str]:
     if not NODES_FILE.exists():
-        default_nodes = ["http://localhost:5001", "http://localhost:5002"]
+        default_nodes = ["http://192.168.100.1:5000", "http://192.168.100.2:5000"]
         with open(NODES_FILE, "w") as f:
             json.dump(default_nodes, f)
         return default_nodes
@@ -68,7 +68,7 @@ def load_nodes() -> List[str]:
             return json.load(f)
     except Exception as e:
         logger.error(f"Error loading nodes: {e}")
-        return ["http://localhost:5001", "http://localhost:5002"]
+        return ["http://192.168.100.1:5000", "http://192.168.100.2:5000"]
 
 def save_nodes(nodes: List[str]):
     try:
