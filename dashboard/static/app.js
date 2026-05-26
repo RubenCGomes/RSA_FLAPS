@@ -218,6 +218,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function updateNodesGrid() {
         _saveAudioState();
+        _clearAllVisualizers();
         nodesGrid.innerHTML = "";
 
         if (nodesStatusList.length === 0) {
@@ -682,15 +683,9 @@ document.addEventListener("DOMContentLoaded", () => {
         masterStatusAlert.classList.remove("hidden");
         masterStatusText.innerText = "Distributing and separating audio mix in parallel. Please stand by...";
 
-        // Show individual loaders — step 0: Uploading
+        // Show step 0 (Uploading) immediately on all nodes
         onlineUrls.forEach(url => {
             toggleNodeCardLoader(url, true, "Uploading track…", 0);
-        });
-
-        // Advance to step 1 (Separating) after a short delay to reflect upload completion
-        await new Promise(r => setTimeout(r, 600));
-        onlineUrls.forEach(url => {
-            toggleNodeCardLoader(url, true, "Separating stem…", 1);
         });
 
         try {
@@ -703,23 +698,39 @@ document.addEventListener("DOMContentLoaded", () => {
                 })
             });
 
-            const result = await resp.json();
+            if (!resp.ok) {
+                throw new Error(`Server error ${resp.status}`);
+            }
 
-            // Advance to step 2 (Buffered) on success per-node
-            for (const url in result.results) {
-                const res = result.results[url];
-                if (res.success) {
-                    toggleNodeCardLoader(url, true, "Buffered ✓", 2);
-                    addLog(`  ✓ ${url} — stem "${res.data.stem}" is buffered and ready.`, "success");
-                } else {
-                    addLog(`  ✗ ${url} — failed: ${res.error}`, "error");
+            // Stream NDJSON lines as the backend yields per-node results
+            const reader = resp.body.getReader();
+            const decoder = new TextDecoder();
+            let buf = "";
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buf += decoder.decode(value, { stream: true });
+                const lines = buf.split("\n");
+                buf = lines.pop(); // hold incomplete trailing line
+                for (const line of lines) {
+                    if (!line.trim()) continue;
+                    const event = JSON.parse(line);
+                    if (event.done) {
+                        addLog("Buffer transaction complete.");
+                    } else if (event.step === "separating") {
+                        // Backend confirmed upload received — advance to step 1
+                        toggleNodeCardLoader(event.url, true, "Separating stem…", 1);
+                    } else if (event.success) {
+                        toggleNodeCardLoader(event.url, true, "Buffered ✓", 2);
+                        addLog(`  ✓ ${event.url} — stem "${event.data.stem}" buffered and ready.`, "success");
+                    } else {
+                        addLog(`  ✗ ${event.url} — failed: ${event.error}`, "error");
+                    }
                 }
             }
 
-            addLog(`Buffer transaction complete.`);
             await new Promise(r => setTimeout(r, 700));
-
-            // Immediately query node status updates
             await refreshNodesStatus();
 
         } catch (e) {
@@ -951,6 +962,10 @@ document.addEventListener("DOMContentLoaded", () => {
             c.clearRect(0, 0, canvas.width, canvas.height);
             canvas.classList.add("hidden");
         }
+    }
+
+    function _clearAllVisualizers() {
+        Object.keys(_vizContexts).forEach(sid => _stopVisualizer(sid));
     }
 
     function toggleBrowserPlayback(sid) {

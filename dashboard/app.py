@@ -3,7 +3,7 @@ import json
 import logging
 from pathlib import Path
 from typing import List, Optional
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 from fastapi import FastAPI, UploadFile, File, HTTPException, Body
 from fastapi.responses import FileResponse, StreamingResponse
@@ -273,23 +273,30 @@ def buffer_audio(req: BufferRequest):
     file_path = UPLOADS_DIR / req.filename
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="Audio file not found in library")
-    
-    nodes = req.nodes
-    if not nodes:
+    if not req.nodes:
         raise HTTPException(status_code=400, detail="No nodes selected")
 
-    results = {}
-    with ThreadPoolExecutor(max_workers=len(nodes)) as executor:
-        futures = {executor.submit(buffer_on_node, url, file_path, req.filename): url for url in nodes}
-        for fut in futures:
-            node_url = futures[fut]
-            try:
-                res = fut.result()
-                results[node_url] = res
-            except Exception as e:
-                results[node_url] = {"url": node_url, "success": False, "error": str(e)}
-    
-    return {"message": "Buffer process completed", "results": results}
+    def _stream():
+        # Immediately signal each node has started so the frontend can show step 1
+        for url in req.nodes:
+            yield json.dumps({"url": url, "step": "separating"}) + "\n"
+
+        with ThreadPoolExecutor(max_workers=len(req.nodes)) as executor:
+            futures = {
+                executor.submit(buffer_on_node, url, file_path, req.filename): url
+                for url in req.nodes
+            }
+            for fut in as_completed(futures):
+                node_url = futures[fut]
+                try:
+                    res = fut.result()
+                except Exception as e:
+                    res = {"url": node_url, "success": False, "error": str(e)}
+                yield json.dumps(res) + "\n"
+
+        yield json.dumps({"done": True}) + "\n"
+
+    return StreamingResponse(_stream(), media_type="application/x-ndjson")
 
 def start_playback_on_node(node_url: str) -> dict:
     try:
