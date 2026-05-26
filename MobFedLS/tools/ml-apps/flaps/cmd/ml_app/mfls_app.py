@@ -520,7 +520,9 @@ class MLApp:
         if parameters is not None:
             self.set_parameters(parameters)
         use_amp = bool(config.get("use_amp", self.use_amp)) and self.device.type == "cuda"
-        chunk_duration = config.get("chunk_duration", None)
+        # Default to chunked inference to avoid OOM on full tracks; pass chunk_duration=0 to disable.
+        _default_chunk = float(os.environ.get("PREDICT_CHUNK_DURATION", "30.0"))
+        chunk_duration = config.get("chunk_duration", _default_chunk) or None
 
         outputs = []
         self.model.eval()
