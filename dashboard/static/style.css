@@ -290,6 +290,30 @@ body::before {
     gap: 8px;
 }
 
+.training-node-header-right {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 5px;
+}
+
+/* Sparkline */
+.sparkline-wrap {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.sparkline { display: block; opacity: 0.85; }
+
+.sparkline-val {
+    font-family: var(--f-mono);
+    font-size: 9px;
+    font-weight: 500;
+}
+.sparkline-down { color: var(--green); }
+.sparkline-up   { color: var(--red); }
+
 .training-node-id { display: flex; flex-direction: column; gap: 3px; }
 
 .training-node-url {
@@ -974,30 +998,82 @@ body::before {
 }
 .node-card-delete:hover { color: var(--red); }
 
-/* Loader overlay */
+/* Loader overlay — buffer step indicator */
 .node-loader-overlay {
     position: absolute;
     inset: 0;
-    background: rgba(8, 10, 18, 0.88);
+    background: rgba(8, 10, 18, 0.91);
     z-index: 10;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 11px;
-    backdrop-filter: blur(5px);
+    gap: 14px;
+    backdrop-filter: blur(6px);
     border-radius: 10px;
 }
 
-.spinner {
-    width: 24px; height: 24px;
-    border: 2px solid rgba(220,152,40,0.14);
-    border-top-color: var(--amber);
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
+.buf-steps {
+    display: flex;
+    align-items: center;
+    gap: 0;
 }
 
-.loader-text { font-family: var(--f-mono); font-size: 10px; color: var(--amber); }
+.buf-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    min-width: 60px;
+}
+
+.buf-step-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    border: 1.5px solid var(--border-2);
+    background: var(--bg-2);
+    transition: all 0.3s var(--ease);
+}
+
+.buf-step-label {
+    font-family: var(--f-mono);
+    font-size: 9px;
+    color: var(--text-3);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    transition: color 0.3s var(--ease);
+}
+
+.buf-step-line {
+    width: 28px;
+    height: 1.5px;
+    background: var(--border-2);
+    margin-bottom: 14px;
+    transition: background 0.3s var(--ease);
+}
+
+.buf-step.active .buf-step-dot {
+    border-color: var(--amber);
+    background: var(--amber-dim);
+    box-shadow: 0 0 6px var(--amber-glow);
+    animation: pulse-dot 1.2s ease infinite;
+}
+.buf-step.active .buf-step-label { color: var(--amber); }
+
+.buf-step.done .buf-step-dot {
+    border-color: var(--green);
+    background: var(--green);
+}
+.buf-step.done .buf-step-label { color: var(--green); }
+
+.buf-step.done + .buf-step-line { background: var(--green); }
+
+@keyframes pulse-dot {
+    0%, 100% { box-shadow: 0 0 4px var(--amber-glow); }
+    50%       { box-shadow: 0 0 10px var(--amber-glow); }
+}
+
+.loader-text { font-family: var(--f-mono); font-size: 10px; color: var(--text-2); }
 
 /* =====================================================================
    BROWSER AUDIO PLAYER

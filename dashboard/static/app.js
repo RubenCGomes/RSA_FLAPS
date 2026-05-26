@@ -342,10 +342,24 @@ document.addEventListener("DOMContentLoaded", () => {
                 ${cardStates}
                 ${cardAudio}
                 ${cardActions}
-                <!-- Loader screen -->
                 <div class="node-loader-overlay hidden" id="loader-${btoa(node.url).replace(/=/g, "")}">
-                    <div class="spinner"></div>
-                    <span class="loader-text">Processing Audio...</span>
+                    <div class="buf-steps">
+                        <div class="buf-step" id="step-upload-${btoa(node.url).replace(/=/g, "")}">
+                            <span class="buf-step-dot"></span>
+                            <span class="buf-step-label">Uploading</span>
+                        </div>
+                        <div class="buf-step-line"></div>
+                        <div class="buf-step" id="step-sep-${btoa(node.url).replace(/=/g, "")}">
+                            <span class="buf-step-dot"></span>
+                            <span class="buf-step-label">Separating</span>
+                        </div>
+                        <div class="buf-step-line"></div>
+                        <div class="buf-step" id="step-ready-${btoa(node.url).replace(/=/g, "")}">
+                            <span class="buf-step-dot"></span>
+                            <span class="buf-step-label">Buffered</span>
+                        </div>
+                    </div>
+                    <span class="loader-text" id="loader-text-${btoa(node.url).replace(/=/g, "")}">Uploading…</span>
                 </div>
             `;
             
@@ -381,17 +395,25 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // Show/Hide loader overlay on node cards during async events (separate/buffer)
-    function toggleNodeCardLoader(url, show, text = "Processing Audio...") {
-        const id = `loader-${btoa(url).replace(/=/g, "")}`;
-        const loader = document.getElementById(id);
-        if (loader) {
-            const textSpan = loader.querySelector(".loader-text");
-            if (textSpan) textSpan.innerText = text;
-            if (show) {
-                loader.classList.remove("hidden");
-            } else {
-                loader.classList.add("hidden");
-            }
+    // step: 0=uploading, 1=separating, 2=ready  (omit to keep current step)
+    function toggleNodeCardLoader(url, show, text = "Processing Audio...", step = 0) {
+        const sid = btoa(url).replace(/=/g, "");
+        const loader = document.getElementById(`loader-${sid}`);
+        if (!loader) return;
+        const textSpan = document.getElementById(`loader-text-${sid}`);
+        if (textSpan) textSpan.innerText = text;
+        if (show) {
+            loader.classList.remove("hidden");
+            const stepIds = [`step-upload-${sid}`, `step-sep-${sid}`, `step-ready-${sid}`];
+            stepIds.forEach((id, i) => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.classList.remove("active", "done");
+                if (i < step)  el.classList.add("done");
+                if (i === step) el.classList.add("active");
+            });
+        } else {
+            loader.classList.add("hidden");
         }
     }
 
@@ -659,9 +681,15 @@ document.addEventListener("DOMContentLoaded", () => {
         masterStatusAlert.classList.remove("hidden");
         masterStatusText.innerText = "Distributing and separating audio mix in parallel. Please stand by...";
 
-        // Show individual loaders on card nodes
+        // Show individual loaders — step 0: Uploading
         onlineUrls.forEach(url => {
-            toggleNodeCardLoader(url, true, "Separating & Buffering Stem...");
+            toggleNodeCardLoader(url, true, "Uploading track…", 0);
+        });
+
+        // Advance to step 1 (Separating) after a short delay to reflect upload completion
+        await new Promise(r => setTimeout(r, 600));
+        onlineUrls.forEach(url => {
+            toggleNodeCardLoader(url, true, "Separating stem…", 1);
         });
 
         try {
@@ -675,17 +703,20 @@ document.addEventListener("DOMContentLoaded", () => {
             });
 
             const result = await resp.json();
-            addLog(`Buffer transaction complete. Inspection results:`);
-            
-            // Loop through results
+
+            // Advance to step 2 (Buffered) on success per-node
             for (const url in result.results) {
                 const res = result.results[url];
                 if (res.success) {
+                    toggleNodeCardLoader(url, true, "Buffered ✓", 2);
                     addLog(`  ✓ ${url} — stem "${res.data.stem}" is buffered and ready.`, "success");
                 } else {
                     addLog(`  ✗ ${url} — failed: ${res.error}`, "error");
                 }
             }
+
+            addLog(`Buffer transaction complete.`);
+            await new Promise(r => setTimeout(r, 700));
 
             // Immediately query node status updates
             await refreshNodesStatus();
@@ -977,6 +1008,30 @@ document.addEventListener("DOMContentLoaded", () => {
                 ? `<span class="node-stem-badge">${node.target_stem}</span>`
                 : "";
 
+            // Build loss sparkline from fit-phase history
+            function buildSparkline(history) {
+                const fitRecs = history.filter(r => r.phase === "fit" && r.loss !== undefined);
+                if (fitRecs.length < 2) return "";
+                const losses = fitRecs.map(r => r.loss);
+                const W = 80, H = 24, PAD = 2;
+                const minL = Math.min(...losses), maxL = Math.max(...losses);
+                const rangeL = maxL - minL || 1;
+                const pts = losses.map((l, i) => {
+                    const x = PAD + (i / (losses.length - 1)) * (W - PAD * 2);
+                    const y = PAD + (1 - (l - minL) / rangeL) * (H - PAD * 2);
+                    return `${x.toFixed(1)},${y.toFixed(1)}`;
+                }).join(" ");
+                const lastLoss = losses[losses.length - 1].toFixed(3);
+                const trend = losses[losses.length - 1] < losses[0] ? "down" : "up";
+                return `<div class="sparkline-wrap" title="Loss over rounds">
+                    <svg class="sparkline" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">
+                        <polyline points="${pts}" fill="none" stroke="var(--indigo)" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+                        <circle cx="${pts.split(" ").pop().split(",")[0]}" cy="${pts.split(" ").pop().split(",")[1]}" r="2" fill="var(--indigo)"/>
+                    </svg>
+                    <span class="sparkline-val sparkline-${trend}">${lastLoss}</span>
+                </div>`;
+            }
+
             let tableHtml;
             if (history.length === 0) {
                 tableHtml = `<div class="training-empty">No rounds completed yet.</div>`;
@@ -1008,13 +1063,18 @@ document.addEventListener("DOMContentLoaded", () => {
                 </table>`;
             }
 
+            const sparkline = buildSparkline(history);
+
             card.innerHTML = `
                 <div class="training-node-header">
                     <div class="training-node-id">
                         <span class="training-node-url">${node.url.replace("http://", "")}</span>
                         ${stemBadge}
                     </div>
-                    <span class="${roundBadgeClass}">${roundText}</span>
+                    <div class="training-node-header-right">
+                        ${sparkline}
+                        <span class="${roundBadgeClass}">${roundText}</span>
+                    </div>
                 </div>
                 <div class="rounds-table-container scrollable">${tableHtml}</div>`;
 
