@@ -775,11 +775,24 @@ document.addEventListener("DOMContentLoaded", () => {
                 const res = result.results[url];
                 if (res.success) {
                     addLog(`  ✓ ${url} — playing stem "${res.data.stem}"`, "success");
+                    // Start in-browser playback on the node card audio element
+                    const sid = btoa(url).replace(/=/g, "");
+                    const audio = document.getElementById(`audio-elem-${sid}`);
+                    if (audio && audio.paused) {
+                        audio.play().then(() => {
+                            const playBtn = document.getElementById(`btn-play-${sid}`);
+                            if (playBtn) {
+                                playBtn.innerHTML = `<svg class="icon" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg> Pause`;
+                                playBtn.classList.add("active");
+                            }
+                            _startVisualizer(sid, audio);
+                        }).catch(() => {});
+                    }
                 } else {
                     addLog(`  ✗ ${url} — failed: ${res.error}`, "error");
                 }
             }
-            
+
             // Query state to show visual equalizers
             setTimeout(refreshNodesStatus, 800);
 
@@ -813,9 +826,25 @@ document.addEventListener("DOMContentLoaded", () => {
                 body: JSON.stringify({ nodes: urls })
             });
 
-            const result = await resp.json();
+            await resp.json();
             addLog("Stop playback command completed.");
-            
+
+            // Stop in-browser playback on all targeted node cards
+            urls.forEach(url => {
+                const sid = btoa(url).replace(/=/g, "");
+                const audio = document.getElementById(`audio-elem-${sid}`);
+                if (audio && !audio.paused) {
+                    audio.pause();
+                    audio.currentTime = 0;
+                    const playBtn = document.getElementById(`btn-play-${sid}`);
+                    if (playBtn) {
+                        playBtn.innerHTML = `<svg class="icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg> Listen`;
+                        playBtn.classList.remove("active");
+                    }
+                    _stopVisualizer(sid);
+                }
+            });
+
             // Force state refresh
             setTimeout(refreshNodesStatus, 800);
 
