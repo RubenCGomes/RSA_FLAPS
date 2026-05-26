@@ -7,206 +7,217 @@
     <link rel="stylesheet" href="/static/style.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
 </head>
 <body>
-    <div class="glass-bg"></div>
     <div class="dashboard-container">
+
         <!-- HEADER -->
         <header class="app-header">
             <div class="logo-area">
-                <div class="pulse-ring"></div>
-                <h1>FLAPS</h1>
-            </div>
-            
-            <div class="header-controls">
-                <div class="status-summary">
-                    <span class="label">System:</span>
-                    <span id="system-status-indicator" class="status-badge status-offline">Connecting...</span>
+                <div class="logo-mark">
+                    <span class="logo-pulse"></span>
+                    <svg class="logo-wave" viewBox="0 0 48 22" fill="none">
+                        <path d="M0 11 Q6 2 12 11 Q18 20 24 11 Q30 2 36 11 Q42 20 48 11"
+                              stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+                    </svg>
                 </div>
-                
+                <div class="logo-text">
+                    <h1 class="logo-title">FLAPS</h1>
+                    <p class="logo-sub">Federated Acoustic Perception</p>
+                </div>
+            </div>
 
+            <div class="header-center">
+                <div class="kpi-strip">
+                    <div class="kpi-chip" id="kpi-total-nodes">
+                        <span class="kpi-val">0</span>
+                        <span class="kpi-lbl">Nodes</span>
+                    </div>
+                    <div class="kpi-div"></div>
+                    <div class="kpi-chip" id="kpi-online-nodes">
+                        <span class="kpi-val">0</span>
+                        <span class="kpi-lbl">Online</span>
+                    </div>
+                    <div class="kpi-div"></div>
+                    <div class="kpi-chip" id="kpi-playing-nodes">
+                        <span class="kpi-val">0</span>
+                        <span class="kpi-lbl">Playing</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="header-right">
+                <span class="sys-label">System</span>
+                <span id="system-status-indicator" class="status-badge status-offline">Connecting</span>
             </div>
         </header>
 
-        <!-- KPI SUMMARY ROW -->
-        <div class="kpi-row">
-            <div class="kpi-card" id="kpi-total-nodes">
-                <span class="kpi-val">0</span>
-                <span class="kpi-lbl">Total Nodes</span>
-            </div>
-            <div class="kpi-card" id="kpi-online-nodes">
-                <span class="kpi-val">0</span>
-                <span class="kpi-lbl">Online</span>
-            </div>
-            <div class="kpi-card" id="kpi-playing-nodes">
-                <span class="kpi-val">0</span>
-                <span class="kpi-lbl">Playing</span>
-            </div>
-        </div>
-
-        <!-- TRAINING MONITOR PANEL -->
-        <section class="training-monitor glass-card" id="panel-training">
+        <!-- TRAINING MONITOR -->
+        <section class="training-monitor" id="panel-training">
             <div class="training-monitor-header">
                 <div class="training-title-group">
                     <h2>FL Training Monitor</h2>
                     <span id="training-global-badge" class="status-badge status-offline">Idle</span>
                 </div>
-                <button id="btn-refresh-training" class="btn btn-text">Refresh</button>
+                <button id="btn-refresh-training" class="btn btn-ghost btn-xs">Refresh</button>
             </div>
             <div id="training-nodes-row" class="training-nodes-row">
                 <div class="empty-state">No training data yet. Start federated training to see round metrics here.</div>
             </div>
         </section>
 
-        <!-- MAIN LAYOUT -->
+        <!-- MAIN GRID -->
         <main class="dashboard-grid">
-            
-            <!-- LEFT PANEL: AUDIO LIBRARY & MASTER PLAYBACK -->
+
+            <!-- LEFT: AUDIO DECK -->
             <section class="panel library-panel" id="panel-library">
                 <div class="panel-header">
-                    <h2>Audio Control Deck</h2>
-                    <span class="panel-badge">Library</span>
+                    <h2>Audio Deck</h2>
+                    <span class="panel-tag">Control</span>
                 </div>
 
-                <!-- Master Control Deck -->
-                <div class="control-card glass-card">
-                    <h3>Master Playback Control</h3>
-                    <p class="section-description">Trigger synchronized playback across all buffered nodes, or stop audio execution.</p>
-                    
+                <!-- Master Playback -->
+                <div class="control-card">
+                    <div class="control-card-title">
+                        <span class="control-dot"></span>
+                        Master Playback
+                    </div>
+                    <p class="section-description">Push the selected track to all online nodes and trigger synchronised playback.</p>
                     <div class="master-playback-actions">
-                        <button id="btn-master-buffer" class="btn btn-secondary btn-glow" disabled>
+                        <button id="btn-master-buffer" class="btn btn-outline" disabled>
                             <svg class="icon" viewBox="0 0 24 24"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM17 13l-5 5-5-5h3V9h4v4h3z"/></svg>
-                            Buffer Selected Track
+                            Buffer Track
                         </button>
-                        <button id="btn-master-play" class="btn btn-primary btn-glow" disabled>
+                        <button id="btn-master-play" class="btn btn-primary" disabled>
                             <svg class="icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-                            Start Playback
+                            Play All
                         </button>
-                        <button id="btn-master-stop" class="btn btn-danger btn-glow" disabled>
+                        <button id="btn-master-stop" class="btn btn-danger" disabled>
                             <svg class="icon" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
-                            Stop Playback
+                            Stop
                         </button>
                     </div>
-
-                    <div id="master-status-alert" class="alert-info hidden">
-                        <span id="master-status-text">Ready to buffer.</span>
+                    <div id="master-status-alert" class="status-bar hidden">
+                        <span id="master-status-text">Ready.</span>
                     </div>
                 </div>
 
-                <!-- Audio Upload Widget -->
-                <div class="upload-area glass-card" id="drop-zone">
+                <!-- Upload Zone -->
+                <div class="upload-area" id="drop-zone">
                     <input type="file" id="audio-file-input" accept=".wav,.mp3,.flac,.ogg" class="hidden-input">
                     <label for="audio-file-input" class="upload-label">
-                        <svg class="upload-icon" viewBox="0 0 24 24"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/></svg>
-                        <span class="upload-title">Drag & Drop Audio Mix</span>
-                        <span class="upload-subtitle">WAV, MP3, FLAC, OGG (Max 50MB)</span>
+                        <svg class="upload-icon" viewBox="0 0 24 24">
+                            <path d="M14 13v4h-4v-4H7l5-5 5 5h-3z"/>
+                            <path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/>
+                        </svg>
+                        <span class="upload-title">Drop audio file here</span>
+                        <span class="upload-hint">WAV · MP3 · FLAC · OGG &nbsp;·&nbsp; max 50 MB</span>
                     </label>
-                    
                     <div id="upload-progress-container" class="progress-container hidden">
-                        <div class="progress-bar-wrapper">
-                            <div id="upload-progress-bar" class="progress-bar"></div>
+                        <div class="progress-track">
+                            <div id="upload-progress-bar" class="progress-fill"></div>
                         </div>
-                        <span id="upload-progress-text" class="progress-text">Uploading: 0%</span>
+                        <span id="upload-progress-text" class="progress-label">0%</span>
                     </div>
                 </div>
 
-                <!-- Library List -->
-                <div class="library-list-container">
-                    <div class="section-title-row">
+                <!-- Audio Library -->
+                <div class="lib-section">
+                    <div class="lib-header">
                         <h3>Audio Library</h3>
-                        <button id="btn-refresh-library" class="btn btn-text">Refresh</button>
+                        <button id="btn-refresh-library" class="btn btn-ghost btn-xs">Refresh</button>
                     </div>
-                    <div id="audio-library-list" class="audio-list scrollable">
+                    <div id="audio-library-list" class="lib-list audio-list scrollable">
                         <div class="empty-state">No audio tracks uploaded yet.</div>
                     </div>
                 </div>
 
                 <!-- Model Library -->
-                <div class="library-list-container model-library-section">
-                    <div class="section-title-row">
+                <div class="lib-section">
+                    <div class="lib-header">
                         <h3>Model Library</h3>
-                        <label for="model-file-input" class="btn btn-text model-upload-label">Upload .pt</label>
+                        <label for="model-file-input" class="btn btn-ghost btn-xs model-upload-label">Upload .pt</label>
                         <input type="file" id="model-file-input" accept=".pt" class="hidden-input">
                     </div>
-                    <p class="section-description">Upload a trained checkpoint and push it to nodes to override their current model weights.</p>
-                    <div id="model-library-list" class="audio-list scrollable">
+                    <p class="section-description">Upload a trained checkpoint and push it to selected nodes.</p>
+                    <div id="model-library-list" class="lib-list scrollable">
                         <div class="empty-state">No models uploaded yet.</div>
                     </div>
                 </div>
 
-                <!-- Model Push Panel (shown when pushing a model) -->
-                <div class="glass-card model-push-panel hidden" id="model-push-panel">
-                    <div class="section-title-row">
-                        <h3>Push: <span id="model-push-filename" class="text-glow"></span></h3>
-                        <button id="btn-model-push-close" class="btn btn-text">Cancel</button>
+                <!-- Model Push Panel -->
+                <div class="push-panel hidden" id="model-push-panel">
+                    <div class="push-panel-header">
+                        <span class="push-panel-title">Push — <span id="model-push-filename" class="accent-text"></span></span>
+                        <button id="btn-model-push-close" class="btn btn-ghost btn-xs">Cancel</button>
                     </div>
-                    <p class="section-description">Select target nodes:</p>
-                    <div id="model-push-node-list" class="model-push-node-list"></div>
-                    <button id="btn-model-push-confirm" class="btn btn-primary btn-glow" style="width:100%;margin-top:8px;">
+                    <p class="section-description" style="margin-bottom:8px;">Select target nodes:</p>
+                    <div id="model-push-node-list" class="push-node-list scrollable"></div>
+                    <button id="btn-model-push-confirm" class="btn btn-primary" style="width:100%;margin-top:10px;">
                         Push to Selected Nodes
                     </button>
                 </div>
             </section>
 
-            <!-- MIDDLE PANEL: CLIENT NODES GRID -->
+            <!-- CENTER: CLIENT NODES -->
             <section class="panel nodes-panel" id="panel-nodes">
                 <div class="panel-header">
-                    <h2>FLAPS Client Nodes</h2>
-                    <button id="btn-refresh-nodes" class="btn btn-secondary btn-sm">Refresh Status</button>
+                    <h2>Client Nodes</h2>
+                    <button id="btn-refresh-nodes" class="btn btn-outline btn-sm">Refresh Status</button>
                 </div>
 
-                <!-- Add Node Form -->
-                <div class="add-node-bar glass-card">
-                    <form id="add-node-form" class="inline-form">
-                        <input type="url" id="node-url-input" placeholder="http://192.168.1.10:5000" required class="premium-input">
-                        <button type="submit" id="btn-add-node" class="btn btn-primary">Add Client</button>
+                <div class="add-node-bar">
+                    <form id="add-node-form" class="add-node-form">
+                        <input type="url" id="node-url-input"
+                               placeholder="http://192.168.100.x:5000"
+                               required class="text-input">
+                        <button type="submit" id="btn-add-node" class="btn btn-primary btn-sm">Add</button>
                     </form>
                 </div>
 
-                <!-- Nodes Grid -->
-                <div id="nodes-grid" class="nodes-grid-container scrollable">
-                    <div class="empty-state">No client nodes registered. Use the box above to add a client node.</div>
+                <div id="nodes-grid" class="nodes-grid scrollable">
+                    <div class="empty-state">No client nodes registered. Use the form above to add a node.</div>
                 </div>
             </section>
 
-            <!-- RIGHT PANEL: ORCHESTRATION FEED & SYSTEM LOGS -->
+            <!-- RIGHT: ORCHESTRATION FEED -->
             <section class="panel feed-panel" id="panel-feed">
                 <div class="panel-header">
                     <h2>Orchestration Feed</h2>
-                    <span class="panel-badge">Terminal</span>
+                    <span class="panel-tag">Terminal</span>
                 </div>
 
-                <!-- Interactive Classification Results -->
-                <div class="class-results-card glass-card hidden" id="classification-results-card">
-                    <div class="card-header-row">
-                        <h3>Stem Classification</h3>
-                        <button id="btn-close-classification" class="btn btn-icon-text">Close</button>
+                <!-- Classification Result -->
+                <div class="cls-card hidden" id="classification-results-card">
+                    <div class="cls-header">
+                        <span class="cls-title">Stem Classification</span>
+                        <button id="btn-close-classification" class="btn btn-ghost btn-xs">Dismiss</button>
                     </div>
-                    <div class="results-body">
-                        <div class="results-stat-row">
-                            <span class="stat-label">File:</span>
-                            <span class="stat-value text-glow" id="cls-filename">mix.wav</span>
+                    <div class="cls-body">
+                        <div class="cls-row">
+                            <span class="cls-lbl">File</span>
+                            <span class="cls-val" id="cls-filename">—</span>
                         </div>
-                        <div class="results-stat-row">
-                            <span class="stat-label">Client / Stem:</span>
-                            <span class="stat-value text-glow" id="cls-stem-target">vocals</span>
+                        <div class="cls-row">
+                            <span class="cls-lbl">Node / Stem</span>
+                            <span class="cls-val" id="cls-stem-target">—</span>
                         </div>
-                        <div class="results-large-status">
+                        <div class="cls-verdict">
                             <span class="cls-result-badge present" id="cls-present-badge">Detected</span>
-                            <span class="cls-result-confidence" id="cls-confidence-val">94% Confidence</span>
+                            <span class="cls-confidence" id="cls-confidence-val">—</span>
                         </div>
                     </div>
                 </div>
 
-                <!-- Live Log Feed -->
-                <div class="log-console-container">
-                    <div class="section-title-row">
-                        <h3>Activity Feed</h3>
-                        <button id="btn-clear-logs" class="btn btn-text">Clear</button>
+                <!-- Activity Log -->
+                <div class="log-section">
+                    <div class="log-header">
+                        <span class="log-title">Activity Feed</span>
+                        <button id="btn-clear-logs" class="btn btn-ghost btn-xs">Clear</button>
                     </div>
                     <div id="system-log-feed" class="log-feed scrollable font-mono">
-                        <div class="log-line log-system">[07:14:33] Dashboard initialized. Awaiting user commands...</div>
+                        <div class="log-line log-system">[system] Dashboard initialized.</div>
                     </div>
                 </div>
             </section>
@@ -214,7 +225,6 @@
         </main>
     </div>
 
-    <!-- UTILITY MODALS OR TEMPLATES (Optional, can be generated dynamically in JS) -->
     <script src="/static/app.js"></script>
 </body>
 </html>
