@@ -221,7 +221,7 @@ document.addEventListener("DOMContentLoaded", () => {
         nodesGrid.innerHTML = "";
 
         if (nodesStatusList.length === 0) {
-            nodesGrid.innerHTML = `<div class="empty-state">No client nodes registered or responding.</div>`;
+            nodesGrid.innerHTML = `<div class="empty-state"><svg class="empty-icon" viewBox="0 0 24 24"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z" opacity=".3"/><circle cx="19" cy="5" r="3" fill="currentColor"/></svg><span>No client nodes registered.<br>Use the form above to add one.</span></div>`;
             return;
         }
 
@@ -320,6 +320,7 @@ document.addEventListener("DOMContentLoaded", () => {
                            data-url="${node.url}" data-sid="${safeId}" preload="none">
                         <source src="/api/audio/stream?node_url=${encUrl}" type="audio/wav">
                     </audio>
+                    <canvas class="waveform-canvas hidden" id="waveform-${safeId}" width="220" height="32"></canvas>
                     <div class="audio-controls-bar">
                         <button class="btn btn-sm btn-browser-play" id="btn-play-${safeId}" data-sid="${safeId}">
                             <svg class="icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
@@ -489,7 +490,7 @@ document.addEventListener("DOMContentLoaded", () => {
         audioLibraryList.innerHTML = "";
         
         if (files.length === 0) {
-            audioLibraryList.innerHTML = `<div class="empty-state">No audio tracks uploaded yet.</div>`;
+            audioLibraryList.innerHTML = `<div class="empty-state"><svg class="empty-icon" viewBox="0 0 24 24"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z" opacity=".35"/><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z" fill="none" stroke="currentColor" stroke-width="1"/></svg><span>No audio tracks uploaded yet.<br>Drop a file above.</span></div>`;
             return;
         }
 
@@ -894,9 +895,62 @@ document.addEventListener("DOMContentLoaded", () => {
                         playBtn.innerHTML = `<svg class="icon" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg> Pause`;
                         playBtn.classList.add("active");
                     }
+                    _startVisualizer(sid, audio);
                 }).catch(() => {});
             }
         });
+    }
+
+    // Per-node Web Audio visualizer contexts keyed by sid
+    const _vizContexts = {};
+
+    function _startVisualizer(sid, audio) {
+        const canvas = document.getElementById(`waveform-${sid}`);
+        if (!canvas) return;
+        if (_vizContexts[sid]) return; // already running
+
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const src = ctx.createMediaElementSource(audio);
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 64;
+        src.connect(analyser);
+        analyser.connect(ctx.destination);
+
+        const bufLen = analyser.frequencyBinCount;
+        const data   = new Uint8Array(bufLen);
+        const c      = canvas.getContext("2d");
+        let   raf;
+
+        function draw() {
+            raf = requestAnimationFrame(draw);
+            analyser.getByteFrequencyData(data);
+            c.clearRect(0, 0, canvas.width, canvas.height);
+            const barW = (canvas.width / bufLen) - 1;
+            data.forEach((v, i) => {
+                const h = (v / 255) * canvas.height;
+                const hue = 200 + (i / bufLen) * 60; // indigo→amber sweep
+                c.fillStyle = `hsla(${hue}, 70%, 65%, 0.85)`;
+                c.fillRect(i * (barW + 1), canvas.height - h, barW, h);
+            });
+        }
+
+        audio.addEventListener("ended", () => _stopVisualizer(sid), { once: true });
+        _vizContexts[sid] = { ctx, raf: null, draw, cancel: () => cancelAnimationFrame(raf) };
+        canvas.classList.remove("hidden");
+        draw();
+    }
+
+    function _stopVisualizer(sid) {
+        const v = _vizContexts[sid];
+        if (!v) return;
+        v.cancel();
+        delete _vizContexts[sid];
+        const canvas = document.getElementById(`waveform-${sid}`);
+        if (canvas) {
+            const c = canvas.getContext("2d");
+            c.clearRect(0, 0, canvas.width, canvas.height);
+            canvas.classList.add("hidden");
+        }
     }
 
     function toggleBrowserPlayback(sid) {
@@ -908,6 +962,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 .then(() => {
                     btn.innerHTML = `<svg class="icon" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg> Pause`;
                     btn.classList.add("active");
+                    _startVisualizer(sid, audio);
                     addLog(`Browser playback started for ${audio.dataset.url.replace("http://", "")}`, "success");
                 })
                 .catch(e => addLog(`Browser playback error: ${e.message}`, "error"));
@@ -915,6 +970,7 @@ document.addEventListener("DOMContentLoaded", () => {
             audio.pause();
             btn.innerHTML = `<svg class="icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg> Listen`;
             btn.classList.remove("active");
+            _stopVisualizer(sid);
         }
     }
 
@@ -953,7 +1009,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const globalBadge = document.getElementById("training-global-badge");
 
         if (!nodesData || nodesData.length === 0) {
-            container.innerHTML = `<div class="empty-state">No client nodes registered.</div>`;
+            container.innerHTML = `<div class="empty-state"><svg class="empty-icon" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" opacity=".45"/></svg><span>No training data yet.<br>Start federated training to see metrics.</span></div>`;
             return;
         }
 
@@ -1157,7 +1213,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const list = document.getElementById("model-library-list");
         list.innerHTML = "";
         if (files.length === 0) {
-            list.innerHTML = `<div class="empty-state">No models uploaded yet.</div>`;
+            list.innerHTML = `<div class="empty-state"><svg class="empty-icon" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" opacity=".5"/></svg><span>No models uploaded yet.<br>Use Upload .pt above.</span></div>`;
             return;
         }
         files.forEach(file => {
@@ -1285,6 +1341,51 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById("btn-model-push-confirm").addEventListener("click", pushModel);
     }
 
+    // -----------------------------------------------------------------------
+    // KEYBOARD SHORTCUTS
+    // -----------------------------------------------------------------------
+    function setupKeyboardShortcuts() {
+        document.addEventListener("keydown", e => {
+            // Ignore when typing in an input/textarea
+            const tag = document.activeElement.tagName;
+            if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
+            if (e.code === "Space") {
+                e.preventDefault();
+                if (!btnMasterPlay.disabled) {
+                    triggerMasterPlay();
+                } else if (!btnMasterStop.disabled) {
+                    triggerMasterStop();
+                }
+            }
+            if (e.code === "KeyR" && !e.ctrlKey && !e.metaKey) {
+                e.preventDefault();
+                refreshNodesStatus();
+            }
+            if (e.code === "KeyB" && !e.ctrlKey && !e.metaKey) {
+                e.preventDefault();
+                if (!btnMasterBuffer.disabled) triggerMasterBuffer();
+            }
+        });
+
+        // Attach kbd hint badges to buttons
+        const hints = [
+            ["btn-master-play",  "Space"],
+            ["btn-master-stop",  "Space"],
+            ["btn-master-buffer","B"],
+            ["btn-refresh-nodes","R"],
+        ];
+        hints.forEach(([id, key]) => {
+            const btn = document.getElementById(id);
+            if (!btn) return;
+            const kbd = document.createElement("kbd");
+            kbd.className = "kbd-hint";
+            kbd.textContent = key;
+            btn.appendChild(kbd);
+        });
+    }
+
     // Run initialization
     init();
+    setupKeyboardShortcuts();
 });
