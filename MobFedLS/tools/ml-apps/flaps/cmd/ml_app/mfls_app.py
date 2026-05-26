@@ -86,6 +86,9 @@ class MLApp:
         self._scheduler_signature: tuple | None = None
         self.run_path = Path(os.environ.get("RUN_PATH", self.repo_root / "runs"))
         self.run_path.mkdir(parents=True, exist_ok=True)
+        # Manifest cache must be outside the dataset mount, which is read-only in containers.
+        self.manifest_cache_dir = Path(os.environ.get("MANIFEST_CACHE_DIR", "/tmp/musdb-manifest-cache"))
+        self.manifest_cache_dir.mkdir(parents=True, exist_ok=True)
         self.lock = threading.Lock()
         self._cache: Dict[str, MusdbSeparationDataset] = {}
         self._training_history: list[dict] = []
@@ -612,6 +615,7 @@ class MLApp:
                 max_segments=max_segments,
                 client_id=self.client_id,
                 num_clients=self.num_clients,
+                cache_dir=self.manifest_cache_dir,
                 augment_train=self.augment_train if split == "train" else False,
                 augment_gain_db=self.augment_gain_db,
                 augment_noise_std=self.augment_noise_std,
