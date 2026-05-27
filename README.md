@@ -569,17 +569,9 @@ The framework components (`flower-server`, `flower-ghostclient`, `mfls-interface
 
 `mfls-manager` handles node lifecycle and round orchestration in the full MobFedLS framework. `MAESTRO_MANAGER_ADDRESS` is currently unset — the server skips the end-of-training callback. `find-neighbours` (peer discovery service in `MobFedLS/cmd/`) exists as a skeleton but is not wired to FLAPS; nodes are registered manually via the dashboard.
 
-### Maestro Manager / MobFedLS orchestration
-
-`mfls-manager` handles node lifecycle and round orchestration in the full MobFedLS framework. `MAESTRO_MANAGER_ADDRESS` is currently unset — the server skips the end-of-training callback. Integrating the manager would enable automated round sequencing and `find-neighbours`-based topology.
-
 ### EmuCD emulation
 
 Benchmarking FL convergence under controlled packet loss, mobility, and temporary disconnections using EmuCD has not been set up.
-
-### Song distribution over mesh
-
-The separation and playback endpoints are fully implemented. The central Jetson can send a song to all clients in parallel, buffer stems, and trigger synchronised playback via `distribute_song.py` over the 802.11s mesh.
 
 ### Dataset cache invalidation
 
