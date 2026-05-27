@@ -246,7 +246,14 @@ async def upload_audio_file(file: UploadFile = File(...)):
 
 @app.delete("/api/audio/{filename}")
 def delete_audio_file(filename: str):
+    if ".." in filename or filename.startswith("/") or "/" in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
     file_path = UPLOADS_DIR / filename
+    # Resolve and confirm the path is still inside UPLOADS_DIR
+    try:
+        file_path.resolve().relative_to(UPLOADS_DIR.resolve())
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid filename")
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found")
     try:

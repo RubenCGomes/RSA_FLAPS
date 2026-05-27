@@ -144,13 +144,10 @@ def _merge_fit_config(config: dict | None) -> dict:
 
 def fit(config):
 	result = APP.fit(None, _merge_fit_config(config))
-	if isinstance(result, tuple) and len(result) == 3:
-		_, num_examples, metrics = result
-		return num_examples, _flower_compatible_metrics(metrics)
-	if isinstance(result, tuple) and len(result) == 2:
-		num_examples, metrics = result
-		return num_examples, _flower_compatible_metrics(metrics)
-	raise TypeError(f"Unexpected fit result from MLApp: {type(result)!r}")
+	if not (isinstance(result, tuple) and len(result) == 3):
+		raise TypeError(f"Unexpected fit result from MLApp: {type(result)!r}")
+	_, num_examples, metrics = result
+	return num_examples, _flower_compatible_metrics(metrics)
 
 
 def _normalize_evaluate_result(result: Any) -> tuple[float, int, dict]:

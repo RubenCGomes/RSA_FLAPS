@@ -206,6 +206,14 @@ class MLApp:
                 "mag_loss": 0.0,
                 "consistency_loss": 0.0,
                 "kl_loss": 0.0,
+                "sisdr_loss": 0.0,
+                "cls_loss": 0.0,
+                "cls_accuracy": 0.0,
+                "epochs": 0,
+                "batch_size": 0,
+                "n_examples": 0,
+                "learning_rate": float(self.optimizer.param_groups[0]["lr"]),
+                "target_stem": self.target_stem or "all",
             }
 
         loader = self._loader(dataset, batch_size=batch_size, shuffle=True)
@@ -818,9 +826,17 @@ class MLApp:
         result_masks = np.zeros((num_stems, mix_mag.shape[0], time_frames), dtype=np.float32)
         blend_weights = np.zeros((time_frames,), dtype=np.float32)
 
+        # Pre-compute a symmetric COLA-compliant window for overlap-add blending.
+        # np.hanning(N) is zero at both endpoints; using it directly on each chunk
+        # satisfies the constant-overlap-add property with 50% overlap (or any
+        # integer fraction).  We size it to chunk_frames so every full chunk uses
+        # the same window; the last partial chunk gets a matching slice.
+        hann_window = np.hanning(chunk_frames)
+
         start = 0
         while start < time_frames:
             end = min(start + chunk_frames, time_frames)
+            chunk_len = end - start
             chunk_mag = mix_mag[:, start:end]
 
             if chunk_mag.shape[1] < chunk_frames:
@@ -834,15 +850,10 @@ class MLApp:
                 chunk_masks, _ = self.model(mix_tensor)
                 chunk_masks = chunk_masks.cpu().numpy()[0]
 
-            if chunk_mag.shape[1] > (end - start):
-                chunk_masks = chunk_masks[:, :, :end - start]
-
-            window = np.hanning(chunk_masks.shape[2] * 2)[chunk_masks.shape[2]:]
-
-            chunk_end = min(start + chunk_masks.shape[2], time_frames)
-            chunk_len = chunk_end - start
-            result_masks[:, :, start:chunk_end] += chunk_masks[:, :, :chunk_len] * window[:chunk_len]
-            blend_weights[start:chunk_end] += window[:chunk_len]
+            # Apply window slice matching the actual (possibly shorter) chunk length
+            win = hann_window[:chunk_len]
+            result_masks[:, :, start:end] += chunk_masks[:, :, :chunk_len] * win
+            blend_weights[start:end] += win
 
             start += chunk_frames - overlap_frames
             if self.device.type == "cuda":
