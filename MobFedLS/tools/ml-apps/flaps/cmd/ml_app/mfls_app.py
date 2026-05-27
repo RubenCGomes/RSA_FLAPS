@@ -874,12 +874,13 @@ class MLApp:
         import soundfile as sf
         from .utils.audio import normalize_magnitude, stft_mag_phase
 
-        wave, _ = sf.read(io.BytesIO(audio_bytes), dtype="float32", always_2d=False)
+        wave, audio_sr = sf.read(io.BytesIO(audio_bytes), dtype="float32", always_2d=False)
         if wave.ndim > 1:
             wave = wave.mean(axis=1)
-        # Truncate to 5 s — the GAP bottleneck discards position anyway, so
-        # extra duration just wastes compute and risks OOM on long inputs.
-        max_samples = 5 * self.sr
+        # Truncate to 5 s using the actual sample rate of the uploaded audio,
+        # not self.sr (the model's training rate), which would be wrong when
+        # the client sends audio at a different rate (e.g. 44100 vs 8000 Hz).
+        max_samples = 5 * audio_sr
         if wave.shape[0] > max_samples:
             wave = wave[:max_samples]
 

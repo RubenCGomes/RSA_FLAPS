@@ -1,6 +1,8 @@
+import io
 import os
 import json
 import logging
+import wave
 from pathlib import Path
 from typing import List, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -363,6 +365,28 @@ def stop_playback(req: PlaybackRequest):
     
     return {"message": "Stop command sent", "results": results}
 
+def _wav_first_seconds(file_path: Path, max_seconds: float = 10.0) -> bytes:
+    """Return a valid WAV containing only the first max_seconds of file_path.
+
+    Falls back to the full file bytes if the header cannot be parsed (e.g.
+    the file was converted to a non-standard WAV by ffmpeg).
+    """
+    try:
+        with wave.open(str(file_path), "rb") as wf:
+            framerate  = wf.getframerate()
+            max_frames = int(framerate * max_seconds)
+            frames     = wf.readframes(min(wf.getnframes(), max_frames))
+            buf = io.BytesIO()
+            with wave.open(buf, "wb") as out:
+                out.setnchannels(wf.getnchannels())
+                out.setsampwidth(wf.getsampwidth())
+                out.setframerate(framerate)
+                out.writeframes(frames)
+            return buf.getvalue()
+    except (wave.Error, EOFError):
+        return file_path.read_bytes()
+
+
 # --- Audio Classification Proxy ---
 @app.post("/api/audio/classify")
 def classify_audio(req: ClassifyRequest):
@@ -371,13 +395,15 @@ def classify_audio(req: ClassifyRequest):
         raise HTTPException(status_code=404, detail="Audio file not found in library")
 
     try:
-        with open(file_path, "rb") as f:
-            files = {"file": (req.filename, f, "audio/wav")}
-            resp = requests.post(f"{req.node_url}/external/classify", files=files, timeout=30)
-            if resp.status_code == 200:
-                return resp.json()
-            else:
-                raise HTTPException(status_code=resp.status_code, detail=f"Client classification failed: {resp.text}")
+        # Send only the first 10 s — nodes truncate to 5 s internally anyway.
+        # This keeps the upload small (~1–2 MB) regardless of the source track length.
+        snippet = _wav_first_seconds(file_path, max_seconds=10.0)
+        files = {"file": (req.filename, snippet, "audio/wav")}
+        resp = requests.post(f"{req.node_url}/external/classify", files=files, timeout=60)
+        if resp.status_code == 200:
+            return resp.json()
+        else:
+            raise HTTPException(status_code=resp.status_code, detail=f"Client classification failed: {resp.text}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Classification request failed: {str(e)}")
 
