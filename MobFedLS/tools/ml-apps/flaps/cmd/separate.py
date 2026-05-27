@@ -5,7 +5,6 @@ import os
 import subprocess
 import tempfile
 import threading
-import time
 import uuid
 import zipfile
 from io import BytesIO
@@ -176,7 +175,7 @@ async def start_playback() -> dict:
             raise HTTPException(status_code=404, detail="No buffered audio — call /external/separate/buffer first")
 
         try:
-            proc = subprocess.Popen(
+            _playback_proc = subprocess.Popen(
                 ["ffplay", "-nodisp", "-autoexit", _buffered_stem_path],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
@@ -185,13 +184,6 @@ async def start_playback() -> dict:
             raise HTTPException(status_code=500, detail="ffplay not found — install ffmpeg")
         except OSError as exc:
             raise HTTPException(status_code=500, detail=f"Failed to start playback: {exc}")
-
-        # Verify the process actually started (it can exit immediately on codec errors)
-        time.sleep(0.05)
-        if proc.poll() is not None:
-            raise HTTPException(status_code=500, detail="ffplay exited immediately — audio file may be corrupt")
-
-        _playback_proc = proc
 
     return {"playing": True, "stem": _buffered_stem_name}
 
