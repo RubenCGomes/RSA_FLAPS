@@ -49,34 +49,42 @@ def load_audio_segment(
     target_sr: int | None = None,
     mono: bool = True,
 ) -> Tuple[np.ndarray, int]:
+    # num_samples and start_sample are in the file's NATIVE sample rate.
+    # We compute the expected output length in target_sr units before resampling
+    # so the final pad/trim lands at the right number of frames.
     with sf.SoundFile(path) as handle:
-        sr = handle.samplerate
+        source_sr = handle.samplerate
         if start_sample:
             handle.seek(max(0, start_sample))
         frames = -1 if num_samples is None else max(0, num_samples)
         audio = handle.read(frames=frames, dtype="float32", always_2d=False)
+
+    # Compute expected output length in the output sample rate
+    if num_samples is not None and target_sr is not None and target_sr != source_sr:
+        expected_samples = int(round(num_samples * target_sr / source_sr))
+    else:
+        expected_samples = num_samples
 
     if mono:
         audio = ensure_mono(audio)
     else:
         audio = audio.astype(np.float32, copy=False)
 
-    if target_sr is not None and target_sr != sr:
+    if target_sr is not None and target_sr != source_sr:
         if audio.ndim == 1:
-            audio = resample_audio(audio, sr, target_sr)
+            audio = resample_audio(audio, source_sr, target_sr)
         else:
-            channels = [resample_audio(audio[:, ch], sr, target_sr) for ch in range(audio.shape[1])]
+            channels = [resample_audio(audio[:, ch], source_sr, target_sr) for ch in range(audio.shape[1])]
             max_len = max((ch.shape[0] for ch in channels), default=0)
             audio = np.stack([pad_or_trim(ch, max_len) for ch in channels], axis=1)
-        sr = target_sr
 
-    if num_samples is not None:
+    if expected_samples is not None:
         if audio.ndim == 1:
-            audio = pad_or_trim(audio, num_samples)
+            audio = pad_or_trim(audio, expected_samples)
         else:
-            audio = np.stack([pad_or_trim(audio[:, ch], num_samples) for ch in range(audio.shape[1])], axis=1)
+            audio = np.stack([pad_or_trim(audio[:, ch], expected_samples) for ch in range(audio.shape[1])], axis=1)
 
-    return audio.astype(np.float32, copy=False), sr
+    return audio.astype(np.float32, copy=False), target_sr if target_sr is not None else source_sr
 
 
 def stft_mag_phase(
