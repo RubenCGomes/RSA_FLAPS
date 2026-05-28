@@ -779,6 +779,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     const sid = btoa(url).replace(/=/g, "");
                     const audio = document.getElementById(`audio-elem-${sid}`);
                     if (audio && audio.paused) {
+                        audio.src = `/api/audio/stream?node_url=${encodeURIComponent(url)}&t=${Date.now()}`;
                         audio.play().then(() => {
                             const playBtn = document.getElementById(`btn-play-${sid}`);
                             if (playBtn) {
@@ -1002,6 +1003,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const btn   = document.getElementById(`btn-play-${sid}`);
         if (!audio || !btn) return;
         if (audio.paused) {
+            audio.src = `/api/audio/stream?node_url=${encodeURIComponent(audio.dataset.url)}&t=${Date.now()}`;
             audio.play()
                 .then(() => {
                     btn.innerHTML = `<svg class="icon" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg> Pause`;
