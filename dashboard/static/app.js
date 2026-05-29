@@ -929,6 +929,7 @@ document.addEventListener("DOMContentLoaded", () => {
             if (muteBtn) muteBtn.innerText = s.muted ? "🔇" : "🔊";
             if (s.playing) {
                 const pos = s.currentTime;
+                audio.src = `/api/audio/stream?node_url=${encodeURIComponent(audio.dataset.url)}&t=${Date.now()}`;
                 audio.play().then(() => {
                     audio.currentTime = pos;
                     const playBtn = document.getElementById(`btn-play-${sid}`);

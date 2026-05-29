@@ -425,7 +425,7 @@ def stream_node_audio(node_url: str):
                 if chunk:
                     yield chunk
 
-        headers = {}
+        headers = {"Cache-Control": "no-store, no-cache, must-revalidate"}
         if "Content-Length" in upstream.headers:
             headers["Content-Length"] = upstream.headers["Content-Length"]
 
