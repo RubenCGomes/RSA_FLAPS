@@ -780,6 +780,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     const audio = document.getElementById(`audio-elem-${sid}`);
                     if (audio && audio.paused) {
                         audio.src = `/api/audio/stream?node_url=${encodeURIComponent(url)}&t=${Date.now()}`;
+                        audio.load();
                         audio.play().then(() => {
                             const playBtn = document.getElementById(`btn-play-${sid}`);
                             if (playBtn) {
@@ -928,10 +929,9 @@ document.addEventListener("DOMContentLoaded", () => {
             const muteBtn = document.getElementById(`btn-mute-${sid}`);
             if (muteBtn) muteBtn.innerText = s.muted ? "🔇" : "🔊";
             if (s.playing) {
-                const pos = s.currentTime;
                 audio.src = `/api/audio/stream?node_url=${encodeURIComponent(audio.dataset.url)}&t=${Date.now()}`;
+                audio.load();
                 audio.play().then(() => {
-                    audio.currentTime = pos;
                     const playBtn = document.getElementById(`btn-play-${sid}`);
                     if (playBtn) {
                         playBtn.innerHTML = `<svg class="icon" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg> Pause`;
@@ -1005,6 +1005,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!audio || !btn) return;
         if (audio.paused) {
             audio.src = `/api/audio/stream?node_url=${encodeURIComponent(audio.dataset.url)}&t=${Date.now()}`;
+            audio.load();
             audio.play()
                 .then(() => {
                     btn.innerHTML = `<svg class="icon" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg> Pause`;
