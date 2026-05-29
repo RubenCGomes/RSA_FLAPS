@@ -235,7 +235,6 @@ async def stream_buffered_stem() -> StreamingResponse:
         headers={
             "Content-Length": str(file_size),
             "Content-Disposition": f'inline; filename="{name}.wav"',
-            "Cache-Control": "no-store, no-cache, must-revalidate",
         },
     )
 
