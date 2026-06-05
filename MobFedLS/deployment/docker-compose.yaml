@@ -1,0 +1,54 @@
+version: '3'
+services:
+    around:
+        image: ${REGISTRY_URL:-}find-neighbours
+        container_name: around-$MACHINE_ID
+        ports:
+            - '6001:6000'
+        volumes:
+            - '../cmd/find-neighbours/cmd/findNeighbours/neighbours_lists:/app/neighbours'
+            - '/var/run/docker.sock:/var/run/docker.sock'
+        environment:
+            - MACHINE_ID=$MACHINE_ID
+            - LOGGING_LEVEL=$LOGGING_LEVEL
+
+    mfls-manager-ml-app:
+        image: ${REGISTRY_URL:-}mfls-manager
+        container_name: mfl-manager-$ML_APP_IMG-$MACHINE_ID
+        labels:
+            - control_group=mfl-manager-$ML_APP_IMG-$MACHINE_ID
+        ports:
+            - '5101:5100'
+        volumes:
+            - '../assets/logs:/app/logs'
+            - '/var/run/docker.sock:/var/run/docker.sock'
+        environment:
+            - LOGGING_LEVEL=$LOGGING_LEVEL
+            - SERVER_IMG=${REGISTRY_URL:-}${SERVER_IMG}
+            - CLIENT_IMG=${REGISTRY_URL:-}${CLIENT_IMG}
+            - FIRST_PORT=5200
+            - LAST_PORT=5300
+            - MACHINE_ID=$MACHINE_ID
+
+    ml-app:
+        image: $ML_APP_IMG
+        container_name: $ML_APP_IMG-$MACHINE_ID
+        labels:
+            - control_group=mfl-manager-$ML_APP_IMG-$MACHINE_ID
+        ports:
+            - '5001:5000'
+        volumes:
+            - '../../musdb18hq:/app/dataset'
+            - '/var/run/docker.sock:/var/run/docker.sock'
+            - '../assets/logs:/app/logs'
+        environment:
+            - LOGGING_LEVEL=$LOGGING_LEVEL
+            - DATASET=$DATASET
+            - PLOT_PERFORMANCE=$PLOT_PERFORMANCE
+            - INSTRUMENT_PROFILE=$INSTRUMENT_PROFILE
+            - ADDRESS_REMOTE=$ADDRESS_REMOTE
+            - USERNAME_REMOTE=$USERNAME_REMOTE
+            - PASSWORD_REMOTE=$PASSWORD_REMOTE
+        # # If using nvidia containers uncomment next lines
+        # ipc: host
+        # runtime: nvidia
